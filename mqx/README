@@ -1,0 +1,58 @@
+libmqx is a light-weight C library to support concurrent executions of multiple
+GPGPU programs on a single GPU. The major component of libmqx is a device memory
+manager. It transparently intercepts application's GPGPU operations and
+coordinates the usage of GPU device memory by automatically evicting/restoring
+application data from/to device memory. In this way, multiple applications
+with device memory conflicts can co-run efficiently at the same time.
+libmqx is currently implemented above NVIDIA CUDA APIs on Linux, but it can be
+ported to other GPGPU programming frameworks, such as OpenCL, and operating
+systems as well.
+
+
+HISTORY
+===========
+1. Oct 6, 2014: libmqx-0.1-alpha. Initial release; basic support for CUDA API
+interception and device memory management. Bugs are expected.
+
+
+USAGE
+===========
+1. Go to src directory, edit Makefile to set up correct CUDA installation
+path. We recommend installing CUDA SDK 5.0, which is known to work with
+libmqx. Newer versions of CUDA SDKs may have some linking problems with libmqx.
+
+2. Run `make'. This should compile libmqx. Two files are generated: libmqx.so
+is the shared library file; mqxctl is the program for creating and destroying
+global libmqx environment.
+
+3. Go to tests directory to run the tests and learn how to use libmqx with
+GPGPU programs.
+>> In micro sub-directory, run `make'. This will compile all micro test cases.
+After make completes, run `make test'. This will run all test cases. All test
+cases are expected to finish successfully (showing `Test passed').
+
+>> In bench sub-directory are some bigger benchmarks, each of which is a
+complete GPGPU program solving some real-world problem. Go to each benchmark's
+folder and read the Makefile to learn how to compile them. Before running each
+benchmark, the libmqx environment should be first set up by going to the src
+directory and running `./mqxctl -sv'. The libmqx environment can be destroyed
+by running `./mqxctl -ev' command under the src directory.
+
+
+LIMITATIONS
+===========
+1. libmqx currently does not support multithreaded GPGPU computation. That is,
+the user process should only have a single thread executing GPGPU operations
+at any time. The implementation of libmqx will be made thread-safe in future
+releases.
+
+2. The CUDA APIs currently supported by libmqx are limited. Read interfaces.c
+for the APIs intercepted by libmqx. The user programs are supposed to use
+only those APIs for device memory related operations. Support for more CUDA
+APIs will be added in future releases. 
+
+
+DEVELOPMENT
+===========
+Go to http://jason.cse.ohio-state.edu/mqx for documentation and other
+development notices. You can contact the author at wkbjerry@gmail.com.
