@@ -25,8 +25,6 @@
 #include "core.h"
 #include "list.h"
 
-int victim_select_cost(
-        long size_needed, struct region **excls, int nexcl,
-        struct list_head *victims);
+int victim_select_cost(long size_needed, struct region **excls, int nexcl, struct list_head *victims);
 
 #endif

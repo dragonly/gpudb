@@ -23,15 +23,15 @@
 #define _MQX_ADVICE_H_
 
 // Device memory region access advices.
-#define CADV_INPUT      1
-#define CADV_OUTPUT     2
-#define CADV_DEFAULT    (CADV_INPUT | CADV_OUTPUT)
-#define CADV_MASK       (CADV_INPUT | CADV_OUTPUT)
+#define CADV_INPUT 1
+#define CADV_OUTPUT 2
+#define CADV_DEFAULT (CADV_INPUT | CADV_OUTPUT)
+#define CADV_MASK (CADV_INPUT | CADV_OUTPUT)
 
 // Device memory pointer array access advices.
-#define CADV_PTAINPUT   4
-#define CADV_PTAOUTPUT  8
+#define CADV_PTAINPUT 4
+#define CADV_PTAOUTPUT 8
 #define CADV_PTADEFAULT (CADV_PTAINPUT | CADV_PTAOUTPUT)
-#define CADV_PTAMASK    (CADV_PTAINPUT | CADV_PTAOUTPUT)
+#define CADV_PTAMASK (CADV_PTAINPUT | CADV_PTAOUTPUT)
 
-#endif  // _MQX_ADVICE_H_
+#endif // _MQX_ADVICE_H_

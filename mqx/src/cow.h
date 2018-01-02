@@ -22,14 +22,13 @@
 #ifndef _MQX_COW_H_
 #define _MQX_COW_H_
 
-#include <stdlib.h>  // For size_t definition.
+#include <stdlib.h> // For size_t definition.
 
-#include "core.h"    // For struct region definition.
+#include "core.h" // For struct region definition.
 
 int cow_init();
 void cow_fini();
-int add_cow_range(void *new_addr, unsigned long new_bytes,
-        struct region *new_region);
+int add_cow_range(void *new_addr, unsigned long new_bytes, struct region *new_region);
 int del_cow_range(void *addr, unsigned long bytes, struct region *r);
 void mqx_libc_free(void *ptr, size_t size);
 

@@ -27,7 +27,7 @@
 
 #include "advice.h"
 
-#define FLAG_PTARRAY    1   // Device memory pointer array
+#define FLAG_PTARRAY 1 // Device memory pointer array
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,4 +41,4 @@ cudaError_t cudaAdvise(int which_arg, int advice);
 }
 #endif
 
-#endif  // _MQX_H_
+#endif // _MQX_H_

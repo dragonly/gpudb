@@ -22,11 +22,11 @@
 #ifndef _MQX_LIBC_HOOKS_H_
 #define _MQX_LIBC_HOOKS_H_
 
-#include <stdlib.h>  // For size_t definition.
+#include <stdlib.h> // For size_t definition.
 
-extern void *__libc_malloc(size_t size);            // Libc malloc
-//extern void *__libc_calloc(size_t n, size_t size);  // Libc calloc
-extern void __libc_free(void* ptr);                 // Libc free
+extern void *__libc_malloc(size_t size); // Libc malloc
+// extern void *__libc_calloc(size_t n, size_t size);  // Libc calloc
+extern void __libc_free(void *ptr); // Libc free
 
 void activate_libc_hooks();
 void deactivate_libc_hooks();

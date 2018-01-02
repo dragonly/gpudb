@@ -31,13 +31,13 @@
 #include "list.h"
 #include "spinlock.h"
 
-extern volatile int initialized;  // Defined in interfaces.c.
-static __thread int libc_hooks_active = 1;     // Thread-local.
+extern volatile int initialized;           // Defined in interfaces.c.
+static __thread int libc_hooks_active = 1; // Thread-local.
 
 struct malloc_area {
-    void *addr;
-    size_t size;
-    struct list_head entry_area;
+  void *addr;
+  size_t size;
+  struct list_head entry_area;
 };
 
 // TODO: This list should be sorted (e.g., using rb tree) to facilitate
@@ -45,63 +45,58 @@ struct malloc_area {
 static struct list_head list_malloc_areas = LIST_HEAD_INIT(list_malloc_areas);
 static struct spinlock lock_malloc_areas = SPINLOCK_INIT;
 
-void add_malloc_area(void *addr, size_t size)
-{
-    struct malloc_area *new_area =
-            (struct malloc_area *)__libc_malloc(sizeof(struct malloc_area));
-    CHECK(new_area != NULL, "Failed to allocate a new malloc area struct");
-    new_area->addr = addr;
-    new_area->size = size;
-    acquire(&lock_malloc_areas);
-    list_add(&new_area->entry_area, &list_malloc_areas);
-    release(&lock_malloc_areas);
+void add_malloc_area(void *addr, size_t size) {
+  struct malloc_area *new_area = (struct malloc_area *)__libc_malloc(sizeof(struct malloc_area));
+  CHECK(new_area != NULL, "Failed to allocate a new malloc area struct");
+  new_area->addr = addr;
+  new_area->size = size;
+  acquire(&lock_malloc_areas);
+  list_add(&new_area->entry_area, &list_malloc_areas);
+  release(&lock_malloc_areas);
 }
 
-int del_malloc_area(const void *addr, size_t *size)
-{
-    struct malloc_area *area;
-    struct list_head *pos;
+int del_malloc_area(const void *addr, size_t *size) {
+  struct malloc_area *area;
+  struct list_head *pos;
 
-    acquire(&lock_malloc_areas);
-    list_for_each(pos, &list_malloc_areas) {
-        area = list_entry(pos, struct malloc_area, entry_area);
-        if (area->addr == addr) {
-            list_del(pos);
-            release(&lock_malloc_areas);
-            *size = area->size;
-            __libc_free(area);
-            return 0;
-        }
+  acquire(&lock_malloc_areas);
+  list_for_each(pos, &list_malloc_areas) {
+    area = list_entry(pos, struct malloc_area, entry_area);
+    if (area->addr == addr) {
+      list_del(pos);
+      release(&lock_malloc_areas);
+      *size = area->size;
+      __libc_free(area);
+      return 0;
     }
-    release(&lock_malloc_areas);
+  }
+  release(&lock_malloc_areas);
 
-    return -1;
+  return -1;
 }
 
 MQX_EXPORT
-void *malloc(size_t size)
-{
-    void *addr = NULL;
+void *malloc(size_t size) {
+  void *addr = NULL;
 
-    if (libc_hooks_active && initialized) {
-        libc_hooks_active = 0;
-        addr = __libc_malloc(size);
-        if (addr && size > 0)
-            add_malloc_area(addr, size);
-        libc_hooks_active = 1;
-    }
-    else
-        addr = __libc_malloc(size);
+  if (libc_hooks_active && initialized) {
+    libc_hooks_active = 0;
+    addr = __libc_malloc(size);
+    if (addr && size > 0)
+      add_malloc_area(addr, size);
+    libc_hooks_active = 1;
+  } else
+    addr = __libc_malloc(size);
 
-    return addr;
+  return addr;
 }
 
 // TODO: Hooking calloc will cause nv_cudaStreamCreate in
 // dma_channel_init to seg fault. This is probably because
 // NV's cudaStreaCreate uses calloc function and the calloc
 // function has been hooked by NV.
-//MQX_EXPORT
-//void *calloc(size_t n, size_t size)
+// MQX_EXPORT
+// void *calloc(size_t n, size_t size)
 //{
 //    void *addr = NULL;
 //
@@ -120,28 +115,20 @@ void *malloc(size_t size)
 //}
 
 MQX_EXPORT
-void free(void *ptr)
-{
-    size_t size = 0;
+void free(void *ptr) {
+  size_t size = 0;
 
-    if (libc_hooks_active && initialized) {
-        libc_hooks_active = 0;
-        if (del_malloc_area(ptr, &size) == -1)
-            __libc_free(ptr);
-        else
-            mqx_libc_free(ptr, size);
-        libc_hooks_active = 1;
-    }
-    else
-        __libc_free(ptr);
-}
-
-void activate_libc_hooks()
-{
-    libc_hooks_active = 1;
-}
-
-void deactivate_libc_hooks()
-{
+  if (libc_hooks_active && initialized) {
     libc_hooks_active = 0;
+    if (del_malloc_area(ptr, &size) == -1)
+      __libc_free(ptr);
+    else
+      mqx_libc_free(ptr, size);
+    libc_hooks_active = 1;
+  } else
+    __libc_free(ptr);
 }
+
+void activate_libc_hooks() { libc_hooks_active = 1; }
+
+void deactivate_libc_hooks() { libc_hooks_active = 0; }

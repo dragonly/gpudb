@@ -25,19 +25,19 @@
 #include <execinfo.h>
 #include <stdio.h>
 #ifdef MQX_CONFIG_PROFILE
-#include <sys/time.h>   // for gettimeofday
-#include "stats.h"      // for TVAL macro
+#include "stats.h"    // for TVAL macro
+#include <sys/time.h> // for gettimeofday
 #endif
 
 #define MQX_EXPORT __attribute__((__visibility__("default")))
 
-#define STAT    0
-#define FATAL   1
-#define ERROR   2
-#define WARN    3
-#define INFO    4
-#define DEBUG   5
-#define PRINT_LEVELS    6
+#define STAT 0
+#define FATAL 1
+#define ERROR 2
+#define WARN 3
+#define INFO 4
+#define DEBUG 5
+#define PRINT_LEVELS 6
 
 // All MQX messages whose print levels are less than or equal to
 // MQX_PRINT_LEVEL will be printed.
@@ -48,76 +48,72 @@
 extern char *MQX_PRINT_MSG[];
 
 #ifdef MQX_PRINT_BUFFER
-#include <sys/time.h>
 #include "spinlock.h"
+#include <sys/time.h>
 
 extern char *mqx_print_buffer;
 extern int mqx_print_lines;
 extern int mqx_print_head;
 extern struct spinlock mqx_print_lock;
-#define mqx_print(lvl, fmt, arg...) \
-    do { \
-        if (lvl <= MQX_PRINT_LEVEL) { \
-            int len; \
-            struct timeval t; \
-            gettimeofday(&t, NULL); \
-            acquire(&mqx_print_lock); \
-            len = sprintf(mqx_print_buffer + mqx_print_head, \
-                    "%s %lf " fmt "\n", MQX_PRINT_MSG[lvl], \
-                    ((double)(t.tv_sec) + t.tv_usec / 1000000.0), ##arg); \
-            mqx_print_lines++; \
-            mqx_print_head += len + 1; \
-            release(&mqx_print_lock); \
-        } \
-    } while (0)
+#define mqx_print(lvl, fmt, arg...)                                                                                    \
+  do {                                                                                                                 \
+    if (lvl <= MQX_PRINT_LEVEL) {                                                                                      \
+      int len;                                                                                                         \
+      struct timeval t;                                                                                                \
+      gettimeofday(&t, NULL);                                                                                          \
+      acquire(&mqx_print_lock);                                                                                        \
+      len = sprintf(mqx_print_buffer + mqx_print_head, "%s %lf " fmt "\n", MQX_PRINT_MSG[lvl],                         \
+                    ((double)(t.tv_sec) + t.tv_usec / 1000000.0), ##arg);                                              \
+      mqx_print_lines++;                                                                                               \
+      mqx_print_head += len + 1;                                                                                       \
+      release(&mqx_print_lock);                                                                                        \
+    }                                                                                                                  \
+  } while (0)
 #else
-#define mqx_print(lvl, fmt, arg...) \
-    do { \
-        if (lvl <= MQX_PRINT_LEVEL) { \
-            fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg); \
-        } \
-    } while (0)
+#define mqx_print(lvl, fmt, arg...)                                                                                    \
+  do {                                                                                                                 \
+    if (lvl <= MQX_PRINT_LEVEL) {                                                                                      \
+      fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                                      \
+    }                                                                                                                  \
+  } while (0)
 #endif
 
 void mqx_print_init();
 void mqx_print_fini();
 
 #ifdef MQX_CONFIG_PROFILE
-#define mqx_profile(fmt, arg...) \
-    do { \
-        struct timeval tprof; \
-        gettimeofday(&tprof, NULL); \
-        mqx_print(STAT, "PROF %lf " fmt "\n", TVAL(tprof), ##arg); \
-    } while (0)
+#define mqx_profile(fmt, arg...)                                                                                       \
+  do {                                                                                                                 \
+    struct timeval tprof;                                                                                              \
+    gettimeofday(&tprof, NULL);                                                                                        \
+    mqx_print(STAT, "PROF %lf " fmt "\n", TVAL(tprof), ##arg);                                                         \
+  } while (0)
 #else
 #define mqx_profile(fmt, arg...)
 #endif
 
 #ifndef min
-#define min(a, b)   ((a) < (b) ? (a) : (b))
+#define min(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
 #ifndef max
-#define max(a, b)   ((a) > (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
 #ifndef gettid
 #define _GNU_SOURCE
-#include <unistd.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 // Gets the id of the caller thread.
-static inline pid_t gettid()
-{
-    return (pid_t)syscall(__NR_gettid);
-}
+static inline pid_t gettid() { return (pid_t)syscall(__NR_gettid); }
 #endif
 
 void panic(const char *msg);
 
-#define CHECK(cond, msg) \
-    do { \
-        if (!(cond)) \
-            panic(msg); \
-    } while (0)
+#define CHECK(cond, msg)                                                                                               \
+  do {                                                                                                                 \
+    if (!(cond))                                                                                                       \
+      panic(msg);                                                                                                      \
+  } while (0)
 
 #endif
