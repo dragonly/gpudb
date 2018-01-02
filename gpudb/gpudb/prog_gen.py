@@ -7,7 +7,7 @@ rootpath = os.getcwd()
 LOAD_GMM = 1
 
 if LOAD_GMM:
-	ldpreload=r'LD_PRELOAD='+rootpath+r'/gdb/src/libgmm.so '
+	ldpreload=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
 	make_command = 'make gmmdb'
 else:
 	ldpreload=''

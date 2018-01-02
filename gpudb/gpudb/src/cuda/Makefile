@@ -24,8 +24,8 @@ else
     LDFLAGS   := -lcudart -lrt
 endif
 
-DATAPATH := /home/lyl/gpu/gpudb/data
-GMMPATH := /home/lyl/gpu/gpudb/gmm
+DATAPATH := /home/lyl/gpudb/gpudb/data
+GMMPATH := /home/lyl/gpudb/gpudb/gmm
 LDFLAGS += -L$(GMMPATH)
 CFLAGS := -I$(GMMPATH)
 

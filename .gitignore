@@ -6,9 +6,11 @@
 *.solo
 .metadata
 gpuDBLoader
-mqxtcl
+mqxctl
 gmon.out
+driver.cu
 cscope.*
+.depend
 .vscode/
 data/
 trace/

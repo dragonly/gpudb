@@ -16,6 +16,7 @@
 
 #ifndef __SSB_COMMON__
 #define __SSB_COMMON__
+#include <stdio.h>
 
 #define BILLION     1000000000
 #define BLOCKNUM    (100*1024*1024)
