@@ -343,8 +343,6 @@ volatile int advice_refs[MAX_ARGS];
 volatile int advice_accs[MAX_ARGS];
 volatile int nadvices = 0;
 
-MQX_EXPORT
-cudaError_t NOcudaAdvise(int which_arg, int advice) { return 0; }
 // MQX-specific: pass data reference and access advices.
 // %which_arg tells which argument (starting with 0) in the following
 // cudaSetupArgument calls is a device memory pointer or pointer array.

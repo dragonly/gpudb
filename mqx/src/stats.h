@@ -82,70 +82,70 @@ extern long bytes_mem_active;
 
 // bytes_mem_alloc and bytes_mem_freed are treated specially,
 // because they may need to update bytes_mem_peak.
-#define stats_inc_alloc(pstats, delta)                                                                                 \
-  do {                                                                                                                 \
-    acquire(&(pstats)->lock);                                                                                          \
-    (pstats)->bytes_mem_alloc += (long)(delta);                                                                        \
-    bytes_mem_active += (long)(delta);                                                                                 \
-    if (bytes_mem_active > (pstats)->bytes_mem_peak)                                                                   \
-      (pstats)->bytes_mem_peak = bytes_mem_active;                                                                     \
-    release(&(pstats)->lock);                                                                                          \
+#define stats_inc_alloc(pstats, delta)               \
+  do {                                               \
+    acquire(&(pstats)->lock);                        \
+    (pstats)->bytes_mem_alloc += (long)(delta);      \
+    bytes_mem_active += (long)(delta);               \
+    if (bytes_mem_active > (pstats)->bytes_mem_peak) \
+      (pstats)->bytes_mem_peak = bytes_mem_active;   \
+    release(&(pstats)->lock);                        \
   } while (0)
 
-#define stats_inc_freed(pstats, delta)                                                                                 \
-  do {                                                                                                                 \
-    acquire(&(pstats)->lock);                                                                                          \
-    (pstats)->bytes_mem_freed += (long)(delta);                                                                        \
-    bytes_mem_active -= (long)(delta);                                                                                 \
-    release(&(pstats)->lock);                                                                                          \
+#define stats_inc_freed(pstats, delta)          \
+  do {                                          \
+    acquire(&(pstats)->lock);                   \
+    (pstats)->bytes_mem_freed += (long)(delta); \
+    bytes_mem_active -= (long)(delta);          \
+    release(&(pstats)->lock);                   \
   } while (0)
 
-#define stats_inc(pstats, elem, delta)                                                                                 \
-  do {                                                                                                                 \
-    acquire(&(pstats)->lock);                                                                                          \
-    (pstats)->elem += (long)(delta);                                                                                   \
-    release(&(pstats)->lock);                                                                                          \
+#define stats_inc(pstats, elem, delta) \
+  do {                                 \
+    acquire(&(pstats)->lock);          \
+    (pstats)->elem += (long)(delta);   \
+    release(&(pstats)->lock);          \
   } while (0)
 
 // There can be no break statement or variable declaration in
 // the program segment measured by the time begin & end macros.
-#define stats_time_begin()                                                                                             \
-  do {                                                                                                                 \
-    struct timeval t1, t2;                                                                                             \
-  gettimeofday(&t1, NULL)
+#define stats_time_begin() \
+  do {                     \
+    struct timeval t1, t2; \
+    gettimeofday(&t1, NULL)
 
-#define stats_time_end(pstats, elem)                                                                                   \
-  gettimeofday(&t2, NULL);                                                                                             \
-  acquire(&(pstats)->lock);                                                                                            \
-  (pstats)->elem += TDIFF(t1, t2);                                                                                     \
-  release(&(pstats)->lock);                                                                                            \
-  }                                                                                                                    \
-  while (0)
-
-#define stats_record_time(pstats, elem, func)                                                                          \
-  do {                                                                                                                 \
-    struct timeval t1, t2;                                                                                             \
-    gettimeofday(&t1, NULL);                                                                                           \
-    func;                                                                                                              \
-    gettimeofday(&t2, NULL);                                                                                           \
-    acquire(&(pstats)->lock);                                                                                          \
-    (pstats)->elem += TDIFF(t1, t2);                                                                                   \
-    release(&(pstats)->lock);                                                                                          \
+#define stats_time_end(pstats, elem) \
+    gettimeofday(&t2, NULL);         \
+    acquire(&(pstats)->lock);        \
+    (pstats)->elem += TDIFF(t1, t2); \
+    release(&(pstats)->lock);        \
   } while (0)
 
-#define stats_kernel_start(pstats, pcb)                                                                                \
-  do {                                                                                                                 \
-    gettimeofday(&(pcb->t_start), NULL);                                                                               \
+#define stats_record_time(pstats, elem, func) \
+  do {                                        \
+    struct timeval t1, t2;                    \
+    gettimeofday(&t1, NULL);                  \
+    func;                                     \
+    gettimeofday(&t2, NULL);                  \
+    acquire(&(pstats)->lock);                 \
+    (pstats)->elem += TDIFF(t1, t2);          \
+    release(&(pstats)->lock);                 \
   } while (0)
 
-#define stats_kernel_end(pstats, pcb)                                                                                  \
-  do {                                                                                                                 \
-    struct timeval t_end;                                                                                              \
-    gettimeofday(&t_end, NULL);                                                                                        \
-    acquire(&(pstats)->lock);                                                                                          \
-    (pstats)->time_kernel +=                                                                                           \
-        (double)((t_end.tv_sec - pcb->t_start.tv_sec) * 1000 + (double)(t_end.tv_usec - pcb->t_start.tv_usec) / 1000); \
-    release(&(pstats)->lock);                                                                                          \
+#define stats_kernel_start(pstats, pcb)       \
+  do {                                        \
+    gettimeofday(&(pcb->t_start), NULL);      \
+  } while (0)
+
+#define stats_kernel_end(pstats, pcb)                           \
+  do {                                                          \
+    struct timeval t_end;                                       \
+    gettimeofday(&t_end, NULL);                                 \
+    acquire(&(pstats)->lock);                                   \
+    (pstats)->time_kernel +=                                    \
+        (double)((t_end.tv_sec - pcb->t_start.tv_sec) * 1000 +  \
+        (double)(t_end.tv_usec - pcb->t_start.tv_usec) / 1000); \
+    release(&(pstats)->lock);                                   \
   } while (0)
 #else
 #define stats_inc_alloc(pstats, delta)

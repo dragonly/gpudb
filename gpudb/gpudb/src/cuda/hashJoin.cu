@@ -621,7 +621,7 @@ struct tableNode *hashJoin(struct joinNode *jNode, struct statistic *pp) {
 
   CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpu_psum1, gpu_psum, sizeof(int) * hsize, cudaMemcpyDeviceToDevice));
 
-  GMM_CALL(cudaAdvise(0, CADV_INPUT | HINT_LAST_REFERENCE));
+  GMM_CALL(cudaAdvise(0, CADV_INPUT));
   GMM_CALL(cudaAdvise(2, CADV_DEFAULT));
   GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
   build_hash_table<<<grid, block>>>(gpu_dim, jNode->rightTable->tupleNum, gpu_psum1, gpu_bucket, hsize);
@@ -657,7 +657,7 @@ struct tableNode *hashJoin(struct joinNode *jNode, struct statistic *pp) {
     // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
     CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpu_fact, jNode->leftTable->content[jNode->leftKeyIndex], foreignKeySize,
                                       (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-    GMM_CALL(cudaAdvise(1, CADV_INPUT | HINT_LAST_REFERENCE));
+    GMM_CALL(cudaAdvise(1, CADV_INPUT));
 
   } else if (dataPos == GPU || dataPos == UVA) {
     gpu_fact = jNode->leftTable->content[jNode->leftKeyIndex];
@@ -669,7 +669,7 @@ struct tableNode *hashJoin(struct joinNode *jNode, struct statistic *pp) {
   if (format == UNCOMPRESSED) {
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(1, CADV_INPUT));
-    GMM_CALL(cudaAdvise(2, CADV_INPUT | HINT_LAST_REFERENCE));
+    GMM_CALL(cudaAdvise(2, CADV_INPUT));
     GMM_CALL(cudaAdvise(3, CADV_INPUT));
     GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
@@ -818,12 +818,9 @@ struct tableNode *hashJoin(struct joinNode *jNode, struct statistic *pp) {
           gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
           CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpu_fact, table, colSize, (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-          GMM_CALL(cudaAdvise(1, HINT_LAST_REFERENCE));
         } else {
           gpu_fact = table;
         }
-        if (i == res->totalAttr - 1)
-          GMM_CALL(cudaAdvise(4, HINT_LAST_REFERENCE));
 
         if (attrSize == sizeof(int)) {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));
@@ -931,13 +928,10 @@ struct tableNode *hashJoin(struct joinNode *jNode, struct statistic *pp) {
           gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
           CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpu_fact, table, colSize, (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-          GMM_CALL(cudaAdvise(1, CADV_INPUT | HINT_LAST_REFERENCE));
+          GMM_CALL(cudaAdvise(1, CADV_INPUT));
         } else {
           gpu_fact = table;
         }
-
-        if (i == res->totalAttr - 1)
-          GMM_CALL(cudaAdvise(4, HINT_LAST_REFERENCE));
 
         if (attrType == sizeof(int)) {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));

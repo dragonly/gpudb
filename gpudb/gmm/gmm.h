@@ -28,8 +28,6 @@
 #include "advice.h"
 
 #define FLAG_PTARRAY    1   // Device memory pointer array
-#define FLAG_COW    2
-#define HINT_LAST_REFERENCE 0
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,7 +36,6 @@ extern "C" {
 // MQX extensions to CUDA runtime interfaces.
 cudaError_t cudaMallocEx(void **devPtr, size_t size, int flags);
 cudaError_t cudaAdvise(int which_arg, int advice);
-cudaError_t NOcudaAdvise(int which_arg, int advice);
 
 #ifdef __cplusplus
 }

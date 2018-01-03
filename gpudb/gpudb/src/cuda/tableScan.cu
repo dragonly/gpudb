@@ -1119,8 +1119,6 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
       for (int k = 0; k < sn->outputNum; k++)
         if (index == sn->outputIndex[k])
           if_later_call = 1;
-      if ((0 == where->expNum - 1 || where->exp[0].index != where->exp[1].index) && (if_later_call == 0))
-        GMM_CALL(cudaAdvise(0, HINT_LAST_REFERENCE));
       if (sn->tn->attrType[index] == INT) {
         int whereValue = *((int *)where->exp[0].content);
         if (rel == EQ) {
@@ -1366,8 +1364,6 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
           }
         }
         printf("\n");
-        if ((i == where->expNum - 1 || where->exp[i].index != where->exp[i + 1].index) && (if_later_call == 0))
-          GMM_CALL(cudaAdvise(0, HINT_LAST_REFERENCE));
 
         int rel = where->exp[i].relation;
         if (sn->tn->attrType[index] == INT) {
@@ -1683,10 +1679,10 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
       int format = sn->tn->dataFormat[index];
       if (format == UNCOMPRESSED) {
         if (sn->tn->attrSize[index] == sizeof(int)) {
-          GMM_CALL(cudaAdvise(0, CADV_INPUT | HINT_LAST_REFERENCE));
+          GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(3, CADV_INPUT));
           if (i == attrNum - 1) {
-            GMM_CALL(cudaAdvise(5, CADV_INPUT | HINT_LAST_REFERENCE));
+            GMM_CALL(cudaAdvise(5, CADV_INPUT));
           } else {
             GMM_CALL(cudaAdvise(5, CADV_INPUT));
           }
@@ -1694,10 +1690,10 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
           scan_int<<<grid, block>>>(scanCol[i], sn->tn->attrSize[index], totalTupleNum, gpuPsum, count, gpuFilter,
                                     result[i]);
         } else {
-          GMM_CALL(cudaAdvise(0, CADV_INPUT | HINT_LAST_REFERENCE));
+          GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(3, CADV_INPUT));
           if (i == attrNum - 1) {
-            GMM_CALL(cudaAdvise(5, CADV_INPUT | HINT_LAST_REFERENCE));
+            GMM_CALL(cudaAdvise(5, CADV_INPUT));
           } else {
             GMM_CALL(cudaAdvise(5, CADV_INPUT));
           }

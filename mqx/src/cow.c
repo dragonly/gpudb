@@ -313,9 +313,9 @@ int del_cow_range(void *addr, unsigned long bytes, struct region *r) {
     if (range->n_r == 0) {
       list_del(pos);
       __libc_free(range);
-      mqx_print(DEBUG, "errno(%d)", errno);
+      mqx_print(DEBUG, "before relieving cow mprotect: errno(%d)", errno);
       int ret = mprotect(addr, bytes, PROT_READ | PROT_WRITE);
-      mqx_print(DEBUG, "ret(%d) errno(%d) addr(%p) size(%ld)", ret, errno, addr, bytes);
+      mqx_print(DEBUG, "after relieving cow mprotect: ret(%d) errno(%d) addr(%p) size(%ld)", ret, errno, addr, bytes);
       return ret;
     }
     return 0;

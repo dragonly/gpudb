@@ -311,10 +311,7 @@ cudaError_t mqx_cudaMalloc(void **devPtr, size_t size, int flags) {
   r->nr_blocks = NRBLOCKS(size);
   r->blocks = (struct block *)calloc(r->nr_blocks, sizeof(struct block));
   if (!r->blocks) {
-    mqx_print(FATAL,
-              "Failed to allocate host memory for a new "
-              "block array: %s.",
-              strerror(errno));
+    mqx_print(FATAL, "Failed to allocate host memory for a new block array: %s.", strerror(errno));
     if (r->pta_addr)
       __libc_free(r->pta_addr);
     __libc_free(r->swp_addr);
@@ -328,7 +325,8 @@ cudaError_t mqx_cudaMalloc(void **devPtr, size_t size, int flags) {
   r->index = -1;
   local_alloc_list_add(r);
   stats_inc_alloc(&local_ctx->stats, size);
-  mqx_print(DEBUG, "cudaMalloc ends: r(%p) swp(%p) pta(%p) nr_blocks(%d)", r, r->swp_addr, r->pta_addr, r->nr_blocks);
+  mqx_print(DEBUG, "cudaMalloc ends: r(%p) swp(%p) pta(%p) nr_blocks(%d)",
+            r, r->swp_addr, r->pta_addr, r->nr_blocks);
 
   *devPtr = r->swp_addr;
   return cudaSuccess;
@@ -338,10 +336,7 @@ cudaError_t mqx_cudaFree(void *devPtr) {
   struct region *r;
 
   if (!(r = region_lookup(local_ctx, devPtr))) {
-    mqx_print(ERROR,
-              "Cannot find a region containing address %p "
-              "for freeing.",
-              devPtr);
+    mqx_print(ERROR, "Cannot find a region containing address %p for freeing.", devPtr);
     return cudaErrorInvalidDevicePointer;
   }
   if (mqx_free(r) < 0)
@@ -386,10 +381,7 @@ cudaError_t mqx_cudaMemcpyDtoH(void *dst, const void *src, size_t count) {
 
   r = region_lookup(local_ctx, src);
   if (!r) {
-    mqx_print(ERROR,
-              "DtoH: cannot find device memory region containing "
-              "source address %p",
-              src);
+    mqx_print(ERROR, "DtoH: cannot find device memory region containing source address %p", src);
     return cudaErrorInvalidDevicePointer;
   }
   CHECK(r->state != STATE_FREEING && r->state != STATE_ZOMBIE, "DtoH: region already freed");
@@ -1012,7 +1004,7 @@ static int block_sync(struct region *r, int block) {
   if (!(dvalid ^ svalid))
     return 0;
   if (!r->dev_addr || !r->swp_addr)
-    panic("block_sync");
+    panic("block_sync: null pointer");
   mqx_print(DEBUG, "block sync begins: r(%p) block(%d) svalid(%d) dvalid(%d)", r, block, svalid, dvalid);
 
   stats_time_begin();
@@ -1143,10 +1135,7 @@ static int mqx_do_htod(struct region *r, void *dst, const void *src, size_t coun
   ilast = BLOCKIDX(end - 1);
   skipped = (char *)calloc(ilast - ifirst + 1, sizeof(char));
   if (!skipped) {
-    mqx_print(FATAL,
-              "HtoD: failed to allocate memory for "
-              "skipped array: %s",
-              strerror(errno));
+    mqx_print(FATAL, "HtoD: failed to allocate memory for skipped array: %s", strerror(errno));
     return -1;
   }
 
@@ -1306,9 +1295,7 @@ static int mqx_htod(struct region *r, void *dst, const void *src, size_t count) 
       unsigned long overlap_off_begin = max(cow_off_begin, dst_off_begin);
       unsigned long overlap_off_end = min(cow_off_end, dst_off_end);
       if (del_cow_range(r->cow_src + cow_off_begin, cow_off_end - cow_off_begin, r) == -1) {
-        mqx_print(FATAL,
-                  "Cannot recover protection for cow source "
-                  "region [%p, %p)",
+        mqx_print(FATAL, "Cannot recover protection for cow source region [%p, %p)",
                   r->cow_src + cow_off_begin, r->cow_src + cow_off_end);
         return -1;
       }
@@ -1669,8 +1656,8 @@ finish:
 // from swap buffer to user buffer while the next block is being fetched
 // from device memory.
 int mqx_dtoh(struct region *r, void *dst, const void *src, size_t count) {
-  mqx_print(DEBUG, "dtoh: r(%p %p %ld %d %d) dst(%p) src(%p) count(%lu)", r, r->swp_addr, r->size, r->flags, r->state,
-            dst, src, count);
+  mqx_print(DEBUG, "dtoh: r(%p %p %ld %d %d) dst(%p) src(%p) count(%lu)",
+            r, r->swp_addr, r->size, r->flags, r->state, dst, src, count);
 
   if (r->flags & FLAG_PTARRAY)
     return mqx_dtoh_pta(r, dst, src, count);
@@ -2192,9 +2179,7 @@ static int mqx_attach(struct region **rgns, int n) {
 
   for (i = 0; i < n; i++) {
     if (rgns[i]->state == STATE_FREEING || rgns[i]->state == STATE_ZOMBIE) {
-      mqx_print(ERROR,
-                "Attach: cannot attach a released region "
-                "r(%p %p %ld %d %d)",
+      mqx_print(ERROR, "Attach: cannot attach a released region r(%p %p %ld %d %d)",
                 rgns[i], rgns[i]->swp_addr, rgns[i]->size, rgns[i]->flags, rgns[i]->state);
       ret = -1;
       goto fail;
