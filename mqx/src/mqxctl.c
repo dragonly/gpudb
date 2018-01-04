@@ -60,7 +60,7 @@ int start(size_t mem_usable) {
     mqx_print(INFO, "Total device memory  : %lu bytes", size_total);
     mqx_print(INFO, "Free device memory   : %lu bytes", size_free);
     mqx_print(INFO, "Usable device memory : %lu bytes%s", size_usable, user_specified ? " (user specified)" : "");
-    mqx_print(INFO, "Setting up MQX context ......");
+    mqx_print(INFO, "Setting up MQX context ...");
   }
 
   // Create the synchronization semaphore for launching kernels.
@@ -69,16 +69,16 @@ int start(size_t mem_usable) {
     // Semaphore already exists; have to re-link it.
     mqx_print(WARN, "Semaphore already exists; re-linking.");
     if (sem_unlink(MQX_SEM_LAUNCH) == -1) {
-      mqx_print(FATAL, "Failed to remove semaphore; quitting");
+      mqx_print(FATAL, "Failed to remove semaphore: %s; quitting.", strerror(errno));
       exit(1);
     }
     sem = sem_open(MQX_SEM_LAUNCH, O_CREAT | O_EXCL, 0660, 1);
     if (sem == SEM_FAILED) {
-      mqx_print(FATAL, "Failed to create semaphore; quitting.");
+      mqx_print(FATAL, "Failed to create semaphore: %s; quitting.", strerror(errno));
       exit(1);
     }
   } else if (sem == SEM_FAILED) {
-    mqx_print(FATAL, "Failed to create semaphore; quitting.");
+    mqx_print(FATAL, "Failed to create semaphore: %s; quitting.", strerror(errno));
     exit(1);
   }
   // The semaphore link has been created; we can close it now.
@@ -91,33 +91,32 @@ int start(size_t mem_usable) {
   if (shmfd == -1 && errno == EEXIST) {
     mqx_print(WARN, "Shared memory already exists; re-linking.");
     if (shm_unlink(MQX_SHM_GLOBAL) == -1) {
-      mqx_print(FATAL, "Failed to remove shared memory; quitting.");
+      mqx_print(FATAL, "Failed to remove shared memory: %s; quitting.", strerror(errno));
       goto fail_shm;
     }
     shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR | O_CREAT | O_EXCL, 0644);
     if (shmfd == -1) {
-      mqx_print(FATAL, "Failed to create shared memory; quitting.");
+      mqx_print(FATAL, "Failed to create shared memory: %s; quitting.", strerror(errno));
       goto fail_shm;
     }
   } else if (shmfd == -1) {
-    mqx_print(FATAL, "Failed to create shared memory; quitting.");
+    mqx_print(FATAL, "Failed to create shared memory: %s; quitting.", strerror(errno));
     goto fail_shm;
   }
   // Truncating a shared memory initializes its content to all zeros.
   if (ftruncate(shmfd, sizeof(struct global_context)) == -1) {
-    mqx_print(FATAL, "Failed to truncate the shared memory; quitting.");
+    mqx_print(FATAL, "Failed to truncate the shared memory: %s; quitting.", strerror(errno));
     goto fail_truncate;
   }
-  pglobal = (struct global_context *)mmap(NULL /* address */, sizeof(*pglobal), PROT_READ | PROT_WRITE, MAP_SHARED,
-                                          shmfd, 0 /* offset */);
+  pglobal = (struct global_context *)mmap(NULL/*address*/, sizeof(*pglobal),
+                                          PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0/*offset*/);
   if (pglobal == MAP_FAILED) {
-    mqx_print(FATAL, "Failed to map the shared memory; quitting.");
+    mqx_print(FATAL, "Failed to map the shared memory: %s; quitting.", strerror(errno));
     goto fail_mmap;
   }
-  mqx_print(WARN, "pglobal(%p) size(%ld)", pglobal, sizeof(*pglobal));
   // Further initialize the content of the shared memory.
   pglobal->mem_total = size_usable;
-  atomic_setl(&pglobal->mem_used, 0);
+  atomic_setl(&pglobal->mem_used, 0L);
   initlock(&pglobal->lock);
   pglobal->nclients = 0;
   pglobal->ilru = -1;
@@ -249,12 +248,9 @@ int main(int argc, char *argv[]) {
       if (optopt == 'm')
         mqx_print(FATAL, "Please specify device memory size");
       else
-        mqx_print(FATAL, "Unknown option %c", c);
-      return -1;
-      break;
+        mqx_print(FATAL, "Unknown option %c", optopt);
     default:
-      abort();
-      break;
+      exit(-1);
     }
   }
 
