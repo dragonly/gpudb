@@ -820,12 +820,10 @@ static void mqx_free_check_cow(struct region *r) {
 // The return value of this function indicates whether the region
 // was released immediately: 0 - not released yet; 1 - released.
 static int mqx_free(struct region *r) {
-  mqx_print(DEBUG,
-            "Freeing region: r(%p) swp(%p) size(%ld) flags(%d) "
-            "state(%d).",
+  mqx_print(DEBUG, "Freeing region: r(%p) swp(%p) size(%ld) flags(%d) state(%d).",
             r, r->swp_addr, r->size, r->flags, r->state);
 
-  // Properly inspect/set region state.
+// Properly inspect/set region state.
 set_state:
   acquire(&r->lock);
   switch (r->state) {
