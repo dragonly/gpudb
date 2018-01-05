@@ -14,27 +14,26 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/cudaHash.h"
-#include "../include/gpuCudaLib.h"
-#include "scanImpl.cu"
 #include <cuda.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "common.h"
+#include "gpuCudaLib.h"
+#include "scanImpl.cu"
 
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
+__device__ static unsigned int StringHash(const char *s) {
+  unsigned int hash = 0;
+  int c;
+  while ((c = *s++)) {
+    hash = ((hash << 5) + hash) ^ c;
+  }
+  return hash;
+}
 
 /*
  * Transform integer to string using one single gpu thread.
  */
-
 __device__ static char *gpuItoa(int value, char *result, int base) {
 
   if (base < 2 || base > 36) {
@@ -68,15 +67,15 @@ __device__ static char *gpuItoa(int value, char *result, int base) {
  * string copy using one gpu thread.
  */
 
-__device__ static char *gpuStrcpy(char *dst, const char *src) {
-
-  char *orig = dst;
-  while (*src)
-    *dst++ = *src++;
-  *dst = '\0';
-
-  return orig;
-}
+//__device__ static char *gpuStrcpy(char *dst, const char *src) {
+//
+//  char *orig = dst;
+//  while (*src)
+//    *dst++ = *src++;
+//  *dst = '\0';
+//
+//  return orig;
+//}
 
 __device__ static char *gpuStrncat(char *dest, const char *src, size_t n) {
   int dest_len = 0;
@@ -117,16 +116,16 @@ __device__ static char *gpuStrcat(char *dest, const char *src) {
  * Combine the group by columns to build the group by keys.
  */
 
-__global__ static void build_groupby_key(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
-                                         long tupleNum, int *key, int *num) {
+extern "C" __global__ void build_groupby_key(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
+                                             long tupleNum, int *key, int *num) {
 
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
 
   for (long i = offset; i < tupleNum; i += stride) {
-    char buf[128] = {0};
+    char buf[128] = { 0 };
     for (int j = 0; j < gbColNum; j++) {
-      char tbuf[32] = {0};
+      char tbuf[32] = { 0 };
       int index = gbIndex[j];
 
       if (index == -1) {
@@ -152,16 +151,16 @@ __global__ static void build_groupby_key(char **content, int gbColNum, int *gbIn
  * This is for testing only.
  */
 
-__global__ static void build_groupby_key_soa(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
-                                             long tupleNum, int *key, int *num) {
+extern "C" __global__ void build_groupby_key_soa(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
+                                                 long tupleNum, int *key, int *num) {
 
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
 
   for (long i = offset; i < tupleNum; i += stride) {
-    char buf[128] = {0};
+    char buf[128] = { 0 };
     for (int j = 0; j < gbColNum; j++) {
-      char tbuf[32] = {0};
+      char tbuf[32] = { 0 };
       int index = gbIndex[j];
 
       if (index == -1) {
@@ -191,7 +190,7 @@ __global__ static void build_groupby_key_soa(char **content, int gbColNum, int *
  * Count the number of groups
  */
 
-__global__ void count_group_num(int *num, int tupleNum, int *totalCount) {
+extern "C" __global__ void count_group_num(int *num, int tupleNum, int *totalCount) {
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
   int localCount = 0;
@@ -240,8 +239,9 @@ __device__ static float calMathExp(char **content, struct mathExp *exp, int pos,
  * group by constant. Currently only support SUM function.
  */
 
-__global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
-                             int *gbType, int *gbSize, long tupleNum, int *key, int *psum, char **result) {
+extern "C" __global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp,
+                                        int *mathOffset, int *gbType, int *gbSize, long tupleNum, int *key, int *psum,
+                                        char **result) {
 
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -268,8 +268,9 @@ __global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op
  * gropu by
  */
 
-__global__ void agg_cal(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
-                        int *gbType, int *gbSize, long tupleNum, int *key, int *psum, char **result) {
+extern "C" __global__ void agg_cal(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp,
+                                   int *mathOffset, int *gbType, int *gbSize, long tupleNum, int *key, int *psum,
+                                   char **result) {
 
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -420,8 +421,8 @@ struct tableNode *groupBy(struct groupByNode *gb, struct statistic *pp) {
     GMM_CALL(cudaAdvise(4, CADV_INPUT));
     GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-    build_groupby_key<<<grid, block>>>(gpuContent, gpuGbColNum, gpuGbIndex, gpuGbType, gpuGbSize, gpuTupleNum, gpuGbKey,
-                                       gpu_hashNum);
+    build_groupby_key<<<grid, block>>>
+        (gpuContent, gpuGbColNum, gpuGbIndex, gpuGbType, gpuGbSize, gpuTupleNum, gpuGbKey, gpu_hashNum);
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuGbType));
@@ -435,7 +436,7 @@ struct tableNode *groupBy(struct groupByNode *gb, struct statistic *pp) {
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_DEFAULT));
-    count_group_num<<<grid, block>>>(gpu_hashNum, HSIZE, gpuGbCount);
+    count_group_num<<<grid, block>>> (gpu_hashNum, HSIZE, gpuGbCount);
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
     CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(&gbCount, gpuGbCount, sizeof(int), cudaMemcpyDeviceToHost));
@@ -536,8 +537,8 @@ struct tableNode *groupBy(struct groupByNode *gb, struct statistic *pp) {
     GMM_CALL(cudaAdvise(9, CADV_INPUT));
     GMM_CALL(cudaAdvise(10, CADV_INPUT));
     GMM_CALL(cudaAdvise(11, CADV_INPUT | CADV_PTADEFAULT));
-    agg_cal<<<grid, block>>>(gpuContent, gpuGbColNum, gpuFunc, gpuOp, gpuMathExp, gpuMathOffset, gpuGbType, gpuGbSize,
-                             gpuTupleNum, gpuGbKey, gpu_psum, gpuResult);
+    agg_cal<<<grid, block>>> (gpuContent, gpuGbColNum, gpuFunc, gpuOp, gpuMathExp, gpuMathOffset, gpuGbType,
+                                gpuGbSize, gpuTupleNum, gpuGbKey, gpu_psum, gpuResult);
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuGbKey));
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpu_psum));
   } else {
@@ -552,8 +553,8 @@ struct tableNode *groupBy(struct groupByNode *gb, struct statistic *pp) {
     // GMM_CALL(cudaAdvise(9, CADV_INPUT));
     // GMM_CALL(cudaAdvise(10, CADV_INPUT));
     GMM_CALL(cudaAdvise(11, CADV_INPUT | CADV_PTADEFAULT));
-    agg_cal_cons<<<grid, block>>>(gpuContent, gpuGbColNum, gpuFunc, gpuOp, gpuMathExp, gpuMathOffset, gpuGbType,
-                                  gpuGbSize, gpuTupleNum, NULL, NULL, gpuResult);
+    agg_cal_cons<<<grid, block>>> (gpuContent, gpuGbColNum, gpuFunc, gpuOp, gpuMathExp, gpuMathOffset, gpuGbType,
+                                     gpuGbSize, gpuTupleNum, NULL, NULL, gpuResult);
   }
 
   for (int i = 0; i < gb->table->totalAttr; i++) {

@@ -14,10 +14,10 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/cpuCudaLib.h"
-#include "../include/gpuCudaLib.h"
-#include "../include/hashJoin.h"
+#include "common.h"
+#include "cpuCudaLib.h"
+#include "gpuCudaLib.h"
+#include "hashJoin.h"
 #include <cuda.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,8 +50,7 @@
   } while (0)
 
 // if the foreign key is compressed using dict-encoding, call this method to generate dict filter first
-__global__ static void count_join_result_dict(int *num, int *psum, char *bucket, char *fact, int dNum,
-                                              int *dictFilter) {
+extern "C" __global__ void count_join_result_dict_cuckoo(int *num, int *psum, char *bucket, char *fact, int dNum, int *dictFilter) {
 
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
@@ -78,7 +77,7 @@ __global__ static void count_join_result_dict(int *num, int *psum, char *bucket,
 
 // transform the dictionary filter to the final filter than can be used to generate the result
 
-__global__ static void transform_dict_filter(int *dictFilter, char *fact, long tupleNum, int dNum, int *filter) {
+extern "C" __global__ void transform_dict_filter_cuckoo(int *dictFilter, char *fact, long tupleNum, int dNum, int *filter) {
 
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
@@ -102,7 +101,7 @@ __global__ static void transform_dict_filter(int *dictFilter, char *fact, long t
 }
 
 // count the number that is not zero in the filter
-__global__ static void filter_count(long tupleNum, int *count, int *factFilter) {
+extern "C" __global__ void filter_count_cuckoo(long tupleNum, int *count, int *factFilter) {
 
   int lcount = 0;
   int stride = blockDim.x * gridDim.x;
@@ -116,8 +115,8 @@ __global__ static void filter_count(long tupleNum, int *count, int *factFilter) 
 }
 
 // if the foreign key is compressed using rle, call this method to generate join filter
-__global__ static void count_join_result_rle(int *num, int *psum, char *bucket, char *fact, long tupleNum,
-                                             long tupleOffset, int *factFilter) {
+extern "C" __global__ void count_join_result_rle_cuckoo(int *num, int *psum, char *bucket, char *fact, long tupleNum, long tupleOffset,
+                                      int *factFilter) {
 
   int stride = blockDim.x * gridDim.x;
   long offset = blockIdx.x * blockDim.x + threadIdx.x;
@@ -170,8 +169,8 @@ __global__ static void count_join_result_rle(int *num, int *psum, char *bucket, 
 }
 
 // if the foreign key is not compressed at all, call this method to generate join filter
-__global__ static void count_join_result(int *seeds, int *hashTable, int bucketNum, char *fact, long inNum, int *count,
-                                         int *factFilter) {
+extern "C" __global__ void count_join_result_cuckoo(int *seeds, int *hashTable, int bucketNum, char *fact, long inNum, int *count,
+                                  int *factFilter) {
   int lcount = 0;
   int stride = blockDim.x * gridDim.x;
   long offset = blockIdx.x * blockDim.x + threadIdx.x;
@@ -212,7 +211,7 @@ __global__ static void count_join_result(int *seeds, int *hashTable, int bucketN
 
 // unpack the column that is compresses using Run Length Encoding
 
-__global__ void static unpack_rle(char *fact, char *rle, long tupleNum, long tupleOffset, int dNum) {
+extern "C" __global__ void unpack_rle_cuckoo(char *fact, char *rle, long tupleNum, long tupleOffset, int dNum) {
 
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -254,112 +253,112 @@ __global__ void static unpack_rle(char *fact, char *rle, long tupleNum, long tup
 // generate psum for RLE compressed column based on filter
 // current implementaton: scan through rle element and find the correponsding element in the filter
 
-__global__ void static rle_psum(int *count, char *fact, long tupleNum, long tupleOffset, int *filter) {
-
-  int offset = blockIdx.x * blockDim.x + threadIdx.x;
-  int stride = blockDim.x * gridDim.x;
-
-  struct rleHeader *rheader = (struct rleHeader *)fact;
-  int dNum = rheader->dictNum;
-
-  for (int i = offset; i < dNum; i += stride) {
-
-    int fcount = ((int *)(fact + sizeof(struct rleHeader)))[i + dNum];
-    int fpos = ((int *)(fact + sizeof(struct rleHeader)))[i + 2 * dNum];
-    int lcount = 0;
-
-    if ((fcount + fpos) < tupleOffset)
-      continue;
-
-    if (fpos >= (tupleOffset + tupleNum))
-      break;
-
-    if (fpos < tupleOffset) {
-      int tcount = fcount + fpos - tupleOffset;
-      if (tcount > tupleNum)
-        tcount = tupleNum;
-      for (int k = 0; k < tcount; k++) {
-        if (filter[k] != 0)
-          lcount++;
-      }
-      count[i] = lcount;
-
-    } else if ((fpos + fcount) > (tupleOffset + tupleNum)) {
-      int tcount = tupleNum + tupleOffset - fpos;
-      for (int k = 0; k < tcount; k++) {
-        if (filter[fpos - tupleOffset + k] != 0)
-          lcount++;
-      }
-      count[i] = lcount;
-
-    } else {
-      for (int k = 0; k < fcount; k++) {
-        if (filter[fpos - tupleOffset + k] != 0)
-          lcount++;
-      }
-      count[i] = lcount;
-    }
-  }
-}
+//extern "C" __global__ void rle_psum(int *count, char *fact, long tupleNum, long tupleOffset, int *filter) {
+//
+//  int offset = blockIdx.x * blockDim.x + threadIdx.x;
+//  int stride = blockDim.x * gridDim.x;
+//
+//  struct rleHeader *rheader = (struct rleHeader *)fact;
+//  int dNum = rheader->dictNum;
+//
+//  for (int i = offset; i < dNum; i += stride) {
+//
+//    int fcount = ((int *)(fact + sizeof(struct rleHeader)))[i + dNum];
+//    int fpos = ((int *)(fact + sizeof(struct rleHeader)))[i + 2 * dNum];
+//    int lcount = 0;
+//
+//    if ((fcount + fpos) < tupleOffset)
+//      continue;
+//
+//    if (fpos >= (tupleOffset + tupleNum))
+//      break;
+//
+//    if (fpos < tupleOffset) {
+//      int tcount = fcount + fpos - tupleOffset;
+//      if (tcount > tupleNum)
+//        tcount = tupleNum;
+//      for (int k = 0; k < tcount; k++) {
+//        if (filter[k] != 0)
+//          lcount++;
+//      }
+//      count[i] = lcount;
+//
+//    } else if ((fpos + fcount) > (tupleOffset + tupleNum)) {
+//      int tcount = tupleNum + tupleOffset - fpos;
+//      for (int k = 0; k < tcount; k++) {
+//        if (filter[fpos - tupleOffset + k] != 0)
+//          lcount++;
+//      }
+//      count[i] = lcount;
+//
+//    } else {
+//      for (int k = 0; k < fcount; k++) {
+//        if (filter[fpos - tupleOffset + k] != 0)
+//          lcount++;
+//      }
+//      count[i] = lcount;
+//    }
+//  }
+//}
 
 // filter the column that is compressed using Run Length Encoding
 // current implementation:
 
-__global__ void static joinFact_rle(int *resPsum, char *fact, int attrSize, long tupleNum, long tupleOffset,
-                                    int *filter, char *result) {
-
-  int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
-  int stride = blockDim.x * gridDim.x;
-
-  struct rleHeader *rheader = (struct rleHeader *)fact;
-  int dNum = rheader->dictNum;
-
-  for (int i = startIndex; i < dNum; i += stride) {
-    int fkey = ((int *)(fact + sizeof(struct rleHeader)))[i];
-    int fcount = ((int *)(fact + sizeof(struct rleHeader)))[i + dNum];
-    int fpos = ((int *)(fact + sizeof(struct rleHeader)))[i + 2 * dNum];
-
-    if ((fcount + fpos) < tupleOffset)
-      continue;
-
-    if (fpos >= (tupleOffset + tupleNum))
-      break;
-
-    if (fpos < tupleOffset) {
-      int tcount = fcount + fpos - tupleOffset;
-      int toffset = resPsum[i];
-      for (int j = 0; j < tcount; j++) {
-        if (filter[j] != 0) {
-          ((int *)result)[toffset] = fkey;
-          toffset++;
-        }
-      }
-
-    } else if ((fpos + fcount) > (tupleOffset + tupleNum)) {
-      int tcount = tupleOffset + tupleNum - fpos;
-      int toffset = resPsum[i];
-      for (int j = 0; j < tcount; j++) {
-        if (filter[fpos - tupleOffset + j] != 0) {
-          ((int *)result)[toffset] = fkey;
-          toffset++;
-        }
-      }
-
-    } else {
-      int toffset = resPsum[i];
-      for (int j = 0; j < fcount; j++) {
-        if (filter[fpos - tupleOffset + j] != 0) {
-          ((int *)result)[toffset] = fkey;
-          toffset++;
-        }
-      }
-    }
-  }
-}
+//extern "C" __global__ void joinFact_rle(int *resPsum, char *fact, int attrSize, long tupleNum, long tupleOffset, int *filter,
+//                             char *result) {
+//
+//  int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
+//  int stride = blockDim.x * gridDim.x;
+//
+//  struct rleHeader *rheader = (struct rleHeader *)fact;
+//  int dNum = rheader->dictNum;
+//
+//  for (int i = startIndex; i < dNum; i += stride) {
+//    int fkey = ((int *)(fact + sizeof(struct rleHeader)))[i];
+//    int fcount = ((int *)(fact + sizeof(struct rleHeader)))[i + dNum];
+//    int fpos = ((int *)(fact + sizeof(struct rleHeader)))[i + 2 * dNum];
+//
+//    if ((fcount + fpos) < tupleOffset)
+//      continue;
+//
+//    if (fpos >= (tupleOffset + tupleNum))
+//      break;
+//
+//    if (fpos < tupleOffset) {
+//      int tcount = fcount + fpos - tupleOffset;
+//      int toffset = resPsum[i];
+//      for (int j = 0; j < tcount; j++) {
+//        if (filter[j] != 0) {
+//          ((int *)result)[toffset] = fkey;
+//          toffset++;
+//        }
+//      }
+//
+//    } else if ((fpos + fcount) > (tupleOffset + tupleNum)) {
+//      int tcount = tupleOffset + tupleNum - fpos;
+//      int toffset = resPsum[i];
+//      for (int j = 0; j < tcount; j++) {
+//        if (filter[fpos - tupleOffset + j] != 0) {
+//          ((int *)result)[toffset] = fkey;
+//          toffset++;
+//        }
+//      }
+//
+//    } else {
+//      int toffset = resPsum[i];
+//      for (int j = 0; j < fcount; j++) {
+//        if (filter[fpos - tupleOffset + j] != 0) {
+//          ((int *)result)[toffset] = fkey;
+//          toffset++;
+//        }
+//      }
+//    }
+//  }
+//}
 
 // filter the column in the fact table that is compressed using dictionary encoding
-__global__ void static joinFact_dict_other(int *resPsum, char *fact, char *dict, int byteNum, int attrSize, long num,
-                                           int *filter, char *result) {
+extern "C" __global__ void joinFact_dict_other_cuckoo(int *resPsum, char *fact, char *dict, int byteNum, int attrSize, long num,
+                                    int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -377,8 +376,8 @@ __global__ void static joinFact_dict_other(int *resPsum, char *fact, char *dict,
   }
 }
 
-__global__ void static joinFact_dict_int(int *resPsum, char *fact, char *dict, int byteNum, int attrSize, long num,
-                                         int *filter, char *result) {
+extern "C" __global__ void joinFact_dict_int_cuckoo(int *resPsum, char *fact, char *dict, int byteNum, int attrSize, long num,
+                                  int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -396,7 +395,7 @@ __global__ void static joinFact_dict_int(int *resPsum, char *fact, char *dict, i
   }
 }
 
-__global__ void static joinFact_other(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinFact_other_cuckoo(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -410,7 +409,7 @@ __global__ void static joinFact_other(int *resPsum, char *fact, int attrSize, lo
   }
 }
 
-__global__ void static joinFact_int(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinFact_int_cuckoo(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -424,8 +423,8 @@ __global__ void static joinFact_int(int *resPsum, char *fact, int attrSize, long
   }
 }
 
-__global__ void static joinDim_rle(int *resPsum, char *dim, int attrSize, long tupleNum, long tupleOffset, int *filter,
-                                   char *result) {
+extern "C" __global__ void joinDim_rle_cuckoo(int *resPsum, char *dim, int attrSize, long tupleNum, long tupleOffset, int *filter,
+                            char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -452,8 +451,8 @@ __global__ void static joinDim_rle(int *resPsum, char *dim, int attrSize, long t
   }
 }
 
-__global__ void static joinDim_dict_other(int *resPsum, char *dim, char *dict, int byteNum, int attrSize, long num,
-                                          int *filter, char *result) {
+extern "C" __global__ void joinDim_dict_other_cuckoo(int *resPsum, char *dim, char *dict, int byteNum, int attrSize, long num,
+                                   int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -472,8 +471,8 @@ __global__ void static joinDim_dict_other(int *resPsum, char *dim, char *dict, i
   }
 }
 
-__global__ void static joinDim_dict_int(int *resPsum, char *dim, char *dict, int byteNum, int attrSize, long num,
-                                        int *filter, char *result) {
+extern "C" __global__ void joinDim_dict_int_cuckoo(int *resPsum, char *dim, char *dict, int byteNum, int attrSize, long num, int *filter,
+                                 char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -492,7 +491,7 @@ __global__ void static joinDim_dict_int(int *resPsum, char *dim, char *dict, int
   }
 }
 
-__global__ void static joinDim_int(int *resPsum, char *dim, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinDim_int_cuckoo(int *resPsum, char *dim, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -507,7 +506,7 @@ __global__ void static joinDim_int(int *resPsum, char *dim, int attrSize, long n
   }
 }
 
-__global__ void static joinDim_other(int *resPsum, char *dim, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinDim_other_cuckoo(int *resPsum, char *dim, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -522,7 +521,7 @@ __global__ void static joinDim_other(int *resPsum, char *dim, int attrSize, long
   }
 }
 
-__global__ void static preshuffle(char *dim, int tupleNum, int bucketNum, int *bucketID, int *offset, int *count) {
+extern "C" __global__ void preshuffle(char *dim, int tupleNum, int bucketNum, int *bucketID, int *offset, int *count) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -536,8 +535,8 @@ __global__ void static preshuffle(char *dim, int tupleNum, int bucketNum, int *b
   }
 }
 
-__global__ void static shuffle_data(char *dim, int tupleNum, int bucketNum, int *start, int *offset, int *bucketStart,
-                                    char *result, int *rid) {
+extern "C" __global__ void shuffle_data(char *dim, int tupleNum, int bucketNum, int *start, int *offset, int *bucketStart,
+                             char *result, int *rid) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -551,8 +550,8 @@ __global__ void static shuffle_data(char *dim, int tupleNum, int bucketNum, int 
   }
 }
 
-__global__ void static cuckooHash(char *dim, int *rid, int *bucketOffset, int *bucketCount, int *hashTable,
-                                  int *seedInput, int seedNum, int *seeds) {
+extern "C" __global__ void cuckooHash(char *dim, int *rid, int *bucketOffset, int *bucketCount, int *hashTable, int *seedInput,
+                           int seedNum, int *seeds) {
 
   __shared__ int buf[CUCKOO_SIZE];
   __shared__ int bufId[CUCKOO_SIZE];
@@ -776,8 +775,8 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
   GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(5, CADV_DEFAULT));
-  preshuffle<<<grid, block>>>(gpu_dim, jNode->rightTable->tupleNum, bucketNum, gpuBucketID, gpuBucketOffset,
-                              gpuBucketCount);
+  preshuffle<<<grid, block>>>
+      (gpu_dim, jNode->rightTable->tupleNum, bucketNum, gpuBucketID, gpuBucketOffset, gpuBucketCount);
 
   scanImpl(gpuBucketCount, bucketNum, gpuBucketPsum, pp);
 
@@ -793,8 +792,8 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
   GMM_CALL(cudaAdvise(5, CADV_INPUT));
   GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-  shuffle_data<<<grid, block>>>(gpu_dim, jNode->rightTable->tupleNum, bucketNum, gpuBucketID, gpuBucketOffset,
-                                gpuBucketPsum, gpuBucketData, gpuRid);
+  shuffle_data<<<grid, block>>> (gpu_dim, jNode->rightTable->tupleNum, bucketNum, gpuBucketID, gpuBucketOffset,
+                                   gpuBucketPsum, gpuBucketData, gpuRid);
 
   int *gpuHash;
   int *gpuSeeds;
@@ -822,8 +821,8 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
   GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(5, CADV_INPUT));
   GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-  cuckooHash<<<bucketNum, block>>>(gpu_dim, gpuRid, gpuBucketPsum, gpuBucketCount, gpuHash, gpuRandomSeed, SEED_NUM,
-                                   gpuSeeds);
+  cuckooHash<<<bucketNum, block>>>
+      (gpu_dim, gpuRid, gpuBucketPsum, gpuBucketCount, gpuHash, gpuRandomSeed, SEED_NUM, gpuSeeds);
 
   if (dataPos == MEM || dataPos == PINNED)
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpu_dim));
@@ -863,11 +862,9 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(3, CADV_INPUT));
     GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-    count_join_result<<<grid, block>>>(gpuSeeds, gpuHash, bucketNum, gpu_fact, jNode->leftTable->tupleNum, gpu_count,
-                                       gpuFactFilter);
-  }
-
-  else if (format == DICT) {
+    count_join_result_cuckoo<<<grid, block>>>
+        (gpuSeeds, gpuHash, bucketNum, gpu_fact, jNode->leftTable->tupleNum, gpu_count, gpuFactFilter);
+  } else if (format == DICT) {
     int dNum;
     struct dictHeader *dheader;
 
@@ -892,20 +889,20 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(2, CADV_INPUT));
     GMM_CALL(cudaAdvise(3, CADV_INPUT));
     GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-    count_join_result_dict<<<grid, block>>>(gpu_hashNum, gpu_psum, gpu_bucket, gpu_fact, dNum, gpuDictFilter);
+    count_join_result_dict_cuckoo<<<grid, block>>> (gpu_hashNum, gpu_psum, gpu_bucket, gpu_fact, dNum, gpuDictFilter);
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(1, CADV_INPUT));
     GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
-    transform_dict_filter<<<grid, block>>>(gpuDictFilter, gpu_fact, jNode->leftTable->tupleNum, dNum, gpuFactFilter);
+    transform_dict_filter_cuckoo<<<grid, block>>> (gpuDictFilter, gpu_fact, jNode->leftTable->tupleNum, dNum, gpuFactFilter);
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuDictFilter));
 
     GMM_CALL(cudaAdvise(1, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(2, CADV_INPUT));
-    filter_count<<<grid, block>>>(jNode->leftTable->tupleNum, gpu_count, gpuFactFilter);
+    filter_count_cuckoo<<<grid, block>>> (jNode->leftTable->tupleNum, gpu_count, gpuFactFilter);
 
   } else if (format == RLE) {
 
@@ -914,13 +911,13 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(3, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_INPUT));
     GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-    count_join_result_rle<<<512, 64>>>(gpu_hashNum, gpu_psum, gpu_bucket, gpu_fact, jNode->leftTable->tupleNum, 0,
-                                       gpuFactFilter);
+    count_join_result_rle_cuckoo<<<512, 64>>>
+        (gpu_hashNum, gpu_psum, gpu_bucket, gpu_fact, jNode->leftTable->tupleNum, 0, gpuFactFilter);
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
     GMM_CALL(cudaAdvise(1, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(2, CADV_INPUT));
-    filter_count<<<grid, block>>>(jNode->leftTable->tupleNum, gpu_count, gpuFactFilter);
+    filter_count_cuckoo<<<grid, block>>> (jNode->leftTable->tupleNum, gpu_count, gpuFactFilter);
   }
 
   CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
@@ -1022,15 +1019,15 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(4, CADV_INPUT));
           GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-          joinFact_int<<<grid, block>>>(gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter,
-                                        gpu_result);
+          joinFact_int_cuckoo<<<grid, block>>>
+              (gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         } else {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(4, CADV_INPUT));
           GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-          joinFact_other<<<grid, block>>>(gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter,
-                                          gpu_result);
+          joinFact_other_cuckoo<<<grid, block>>>
+              (gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         }
 
       } else if (format == DICT) {
@@ -1059,16 +1056,16 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
           GMM_CALL(cudaAdvise(2, CADV_INPUT));
           GMM_CALL(cudaAdvise(6, CADV_INPUT));
           GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-          joinFact_dict_int<<<grid, block>>>(gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
-                                             jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
+          joinFact_dict_int_cuckoo<<<grid, block>>> (gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
+                                                jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         } else {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(2, CADV_INPUT));
           GMM_CALL(cudaAdvise(6, CADV_INPUT));
           GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-          joinFact_dict_other<<<grid, block>>>(gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
-                                               jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
+          joinFact_dict_other_cuckoo<<<grid, block>>> (gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
+                                                  jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         }
 
         CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuDictHeader));
@@ -1089,7 +1086,7 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
 
         GMM_CALL(cudaAdvise(0, CADV_INPUT));
         GMM_CALL(cudaAdvise(1, CADV_OUTPUT));
-        unpack_rle<<<grid, block>>>(gpu_fact, gpuRle, jNode->leftTable->tupleNum, 0, dNum);
+        unpack_rle_cuckoo<<<grid, block>>> (gpu_fact, gpuRle, jNode->leftTable->tupleNum, 0, dNum);
 
         CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
@@ -1097,8 +1094,8 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
         GMM_CALL(cudaAdvise(1, CADV_INPUT));
         GMM_CALL(cudaAdvise(4, CADV_INPUT));
         GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-        joinFact_int<<<grid, block>>>(gpu_resPsum, gpuRle, attrSize, jNode->leftTable->tupleNum, gpuFactFilter,
-                                      gpu_result);
+        joinFact_int_cuckoo<<<grid, block>>>
+            (gpu_resPsum, gpuRle, attrSize, jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
 
         CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuRle));
       }
@@ -1118,15 +1115,15 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(4, CADV_INPUT));
           GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-          joinDim_int<<<grid, block>>>(gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter,
-                                       gpu_result);
+          joinDim_int_cuckoo<<<grid, block>>>
+              (gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         } else {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(4, CADV_INPUT));
           GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-          joinDim_other<<<grid, block>>>(gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter,
-                                         gpu_result);
+          joinDim_other_cuckoo<<<grid, block>>>
+              (gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         }
 
       } else if (format == DICT) {
@@ -1153,16 +1150,16 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
           GMM_CALL(cudaAdvise(2, CADV_INPUT));
           GMM_CALL(cudaAdvise(6, CADV_INPUT));
           GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-          joinDim_dict_int<<<grid, block>>>(gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
-                                            jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
+          joinDim_dict_int_cuckoo<<<grid, block>>> (gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
+                                               jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         } else {
           GMM_CALL(cudaAdvise(0, CADV_INPUT));
           GMM_CALL(cudaAdvise(1, CADV_INPUT));
           GMM_CALL(cudaAdvise(2, CADV_INPUT));
           GMM_CALL(cudaAdvise(6, CADV_INPUT));
           GMM_CALL(cudaAdvise(7, CADV_OUTPUT));
-          joinDim_dict_other<<<grid, block>>>(gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
-                                              jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
+          joinDim_dict_other_cuckoo<<<grid, block>>> (gpu_resPsum, gpu_fact, gpuDictHeader, byteNum, attrSize,
+                                                 jNode->leftTable->tupleNum, gpuFactFilter, gpu_result);
         }
         CUDA_SAFE_CALL_NO_SYNC(cudaFree(gpuDictHeader));
 
@@ -1179,8 +1176,8 @@ struct tableNode *cuckooHashJoin(struct joinNode *jNode, struct statistic *pp) {
         GMM_CALL(cudaAdvise(1, CADV_INPUT));
         GMM_CALL(cudaAdvise(5, CADV_INPUT));
         GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-        joinDim_rle<<<grid, block>>>(gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, 0, gpuFactFilter,
-                                     gpu_result);
+        joinDim_rle_cuckoo<<<grid, block>>>
+            (gpu_resPsum, gpu_fact, attrSize, jNode->leftTable->tupleNum, 0, gpuFactFilter, gpu_result);
       }
     }
 

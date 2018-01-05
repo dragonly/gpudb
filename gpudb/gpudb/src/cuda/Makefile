@@ -27,24 +27,39 @@ endif
 DATAPATH := /home/lyl/gpudb/gpudb/data
 GMMPATH := /home/lyl/gpudb/gpudb/gmm
 LDFLAGS += -L$(GMMPATH)
-CFLAGS := -I$(GMMPATH)
+CFLAGS := -I$(GMMPATH) -I../include
+
+SRC := tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu
+OBJ := tableScan.o hashJoin.o cuckoo.o inviJoin.o materialize.o groupBy.o orderBy.o
 
 all: gmmdb
 
-gmmdb: gmm cpu
-	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupby.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+module: $(SRC)
+	$(NVCC) -cubin -dlink -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $^ -o ops.cubin
 
-gpudb: gpu cpu
-	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupby.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
+gmmdb: gmm cpu
+	$(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+
+gmm: $(SRC)
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC)
+
+gpudb: $(SRC)
+	$(NVCC) -pg $(GENCODE_FLAGS) $(CFLAGS) $^ -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE 
+
+gmmdb1: gmm1 cpu1
+	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupBy.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+
+gpudb1: gpu1 cpu1
+	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupBy.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
 
 cpu: driver.cu 
-	$(NVCC) -c -g $(GENCODE_FLAGS) driver.cu
+	$(NVCC) -c -g $(GENCODE_FLAGS) -I../include driver.cu
 
-gpu: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu 
+gpu1: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupNy.cu orderBy.cu 
 
-gmm: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu 
+gmm1: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupNy.cu orderBy.cu 
 
 run:
 	LD_PRELOAD=../../../lib-intercept/libicept.so ./GPUDATABASE --datadir ../../data

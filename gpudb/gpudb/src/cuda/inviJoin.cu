@@ -14,10 +14,6 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "../include/inviJoin.h"
-#include "scanImpl.cu"
 #include <cuda.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,11 +23,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "common.h"
+#include "gpuCudaLib.h"
+#include "inviJoin.h"
+#include "scanImpl.cu"
 #ifdef HAS_GMM
 #include "gmm.h"
 #endif
 
-__global__ static void count_hash_num(char *dim, long dNum, int *num) {
+extern "C" __global__ void count_hash_num_invijoin(char *dim, long dNum, int *num) {
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -42,7 +42,7 @@ __global__ static void count_hash_num(char *dim, long dNum, int *num) {
   }
 }
 
-__global__ static void build_hash_table(char *dim, long dNum, int *psum, char *bucket) {
+extern "C" __global__ void build_hash_table_invijoin(char *dim, long dNum, int *psum, char *bucket) {
 
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
@@ -58,8 +58,8 @@ __global__ static void build_hash_table(char *dim, long dNum, int *psum, char *b
   }
 }
 
-__global__ static void count_join_result(int *hashNum, int *psum, char *bucket, char *fact, long fNum,
-                                         int *factFilter) {
+extern "C" __global__ void count_join_result_invijoin(int *hashNum, int *psum, char *bucket, char *fact, long fNum,
+                                             int *factFilter) {
   int stride = blockDim.x * gridDim.x;
   long offset = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -81,7 +81,7 @@ __global__ static void count_join_result(int *hashNum, int *psum, char *bucket, 
   }
 }
 
-__global__ void static joinFact_other(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinFact_other_invijoin(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -95,7 +95,7 @@ __global__ void static joinFact_other(int *resPsum, char *fact, int attrSize, lo
   }
 }
 
-__global__ void static joinFact_int(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
+extern "C" __global__ void joinFact_int_invijoin(int *resPsum, char *fact, int attrSize, long num, int *filter, char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -109,8 +109,8 @@ __global__ void static joinFact_int(int *resPsum, char *fact, int attrSize, long
   }
 }
 
-__global__ void static joinDim_int(int *resPsum, char *dim, int attrSize, long num, int *factF, int *filter,
-                                   char *result) {
+extern "C" __global__ void joinDim_int_invijoin(int *resPsum, char *dim, int attrSize, long num, int *factF, int *filter,
+                                       char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -125,8 +125,8 @@ __global__ void static joinDim_int(int *resPsum, char *dim, int attrSize, long n
   }
 }
 
-__global__ void static joinDim_other(int *resPsum, char *dim, int attrSize, long num, int *factF, int *filter,
-                                     char *result) {
+extern "C" __global__ void joinDim_other_invijoin(int *resPsum, char *dim, int attrSize, long num, int *factF, int *filter,
+                                         char *result) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -141,7 +141,7 @@ __global__ void static joinDim_other(int *resPsum, char *dim, int attrSize, long
   }
 }
 
-__global__ void static merge(int **filter, long fNum, int dNum, int *result, int *count, int *totalCount) {
+extern "C" __global__ void merge(int **filter, long fNum, int dNum, int *result, int *count, int *totalCount) {
 
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -168,11 +168,11 @@ static void buildHashPlan(long size, int *pass) {
   *pass = 3 * size / gpuMem + 1;
 }
 
-static void joinPlan(struct joinNode *jNode, int *pass) {
-  int gpuMem = getGpuGlobalMem(0);
-
-  *pass = 1;
-}
+//static void joinPlan(struct joinNode *jNode, int *pass) {
+//  int gpuMem = getGpuGlobalMem(0);
+//
+//  *pass = 1;
+//}
 
 struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
 
@@ -267,7 +267,7 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_DEFAULT));
-    count_hash_num<<<grid, block>>>(gpu_dim, jNode->dimTable[k]->tupleNum, gpuHashNum[k]);
+    count_hash_num_invijoin<<<grid, block>>> (gpu_dim, jNode->dimTable[k]->tupleNum, gpuHashNum[k]);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
@@ -290,7 +290,7 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_DEFAULT));
     GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
-    build_hash_table<<<grid, block>>>(gpu_dim, jNode->dimTable[k]->tupleNum, gpu_psum, gpu_hash[k]);
+    build_hash_table_invijoin<<<grid, block>>> (gpu_dim, jNode->dimTable[k]->tupleNum, gpu_psum, gpu_hash[k]);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
@@ -338,8 +338,8 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(2, CADV_INPUT));
     GMM_CALL(cudaAdvise(3, CADV_INPUT));
     GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-    count_join_result<<<grid, block>>>(gpuHashNum[k], gpuHashPsum[k], gpu_hash[k], gpu_fact[k],
-                                       jNode->factTable->tupleNum, gpuFilter[k]);
+    count_join_result_invijoin<<<grid, block>>>
+        (gpuHashNum[k], gpuHashPsum[k], gpu_hash[k], gpu_fact[k], jNode->factTable->tupleNum, gpuFilter[k]);
   }
 
   CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
@@ -388,8 +388,8 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
   GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
   GMM_CALL(cudaAdvise(5, CADV_DEFAULT));
-  merge<<<grid, block>>>(gpuFilterAddr, jNode->factTable->tupleNum, jNode->dimNum, gpuFinalFilter, gpuCount,
-                         gpuTotalCount);
+  merge<<<grid, block>>>
+      (gpuFilterAddr, jNode->factTable->tupleNum, jNode->dimNum, gpuFinalFilter, gpuCount, gpuTotalCount);
 
   CUDA_SAFE_CALL_NO_SYNC(cudaDeviceSynchronize());
 
@@ -465,15 +465,15 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-      joinFact_int<<<grid, block>>>(gpuResPsum, gpu_fact[i], attrSize[i], jNode->factTable->tupleNum, gpuFinalFilter,
-                                    gpuResult[i]);
+      joinFact_int_invijoin<<<grid, block>>>
+          (gpuResPsum, gpu_fact[i], attrSize[i], jNode->factTable->tupleNum, gpuFinalFilter, gpuResult[i]);
     } else {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-      joinFact_other<<<grid, block>>>(gpuResPsum, gpu_fact[i], attrSize[i], jNode->factTable->tupleNum, gpuFinalFilter,
-                                      gpuResult[i]);
+      joinFact_other_invijoin<<<grid, block>>>
+          (gpuResPsum, gpu_fact[i], attrSize[i], jNode->factTable->tupleNum, gpuFinalFilter, gpuResult[i]);
     }
   }
 
@@ -487,16 +487,16 @@ struct tableNode *inviJoin(struct joinNode *jNode, struct statistic *pp) {
         GMM_CALL(cudaAdvise(4, CADV_INPUT));
         GMM_CALL(cudaAdvise(5, CADV_INPUT));
         GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-        joinDim_int<<<grid, block>>>(gpuResPsum, gpu_fact[k], attrSize[k], jNode->factTable->tupleNum, gpuFilter[k],
-                                     gpuFinalFilter, gpuResult[k]);
+        joinDim_int_invijoin<<<grid, block>>> (gpuResPsum, gpu_fact[k], attrSize[k], jNode->factTable->tupleNum, gpuFilter[k],
+                                        gpuFinalFilter, gpuResult[k]);
       } else {
         GMM_CALL(cudaAdvise(0, CADV_INPUT));
         GMM_CALL(cudaAdvise(1, CADV_INPUT));
         GMM_CALL(cudaAdvise(4, CADV_INPUT));
         GMM_CALL(cudaAdvise(5, CADV_INPUT));
         GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-        joinDim_other<<<grid, block>>>(gpuResPsum, gpu_fact[k], attrSize[k], jNode->factTable->tupleNum, gpuFilter[k],
-                                       gpuFinalFilter, gpuResult[k]);
+        joinDim_other_invijoin<<<grid, block>>> (gpuResPsum, gpu_fact[k], attrSize[k], jNode->factTable->tupleNum,
+                                          gpuFilter[k], gpuFinalFilter, gpuResult[k]);
       }
       k++;
     }

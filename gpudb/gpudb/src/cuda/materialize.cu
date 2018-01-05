@@ -14,9 +14,9 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "../include/schema.h"
+#include "common.h"
+#include "gpuCudaLib.h"
+#include "schema.h"
 #include <cuda.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,16 +25,8 @@
 #include "gmm.h"
 #endif
 
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
-
-__global__ static void materialize(char **content, int colNum, int *attrSize, long tupleNum, int tupleSize,
-                                   char *result) {
+extern "C" __global__ void materialize(char **content, int colNum, int *attrSize, long tupleNum, int tupleSize,
+                                       char *result) {
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
 
   int stride = blockDim.x * gridDim.x;
@@ -93,7 +85,7 @@ char *materializeCol(struct materializeNode *mn, struct statistic *pp) {
   GMM_CALL(cudaAdvise(0, CADV_INPUT | CADV_PTAINPUT));
   GMM_CALL(cudaAdvise(2, CADV_INPUT));
   GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-  materialize<<<grid, block>>>(gpuContent, tn->totalAttr, gpuAttrSize, tn->tupleNum, tn->tupleSize, gpuResult);
+  materialize<<<grid, block>>> (gpuContent, tn->totalAttr, gpuAttrSize, tn->tupleNum, tn->tupleSize, gpuResult);
 
   CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(res, gpuResult, size, cudaMemcpyDeviceToHost));
 

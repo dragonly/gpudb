@@ -14,8 +14,8 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include "scanImpl.cu"
 #include <assert.h>
 #include <cuda.h>
@@ -25,14 +25,6 @@
 #ifdef HAS_GMM
 #include "gmm.h"
 #endif
-
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
 
 #define SHARED_SIZE_LIMIT 1024
 
@@ -53,7 +45,7 @@ __device__ static int gpu_strcmp(const char *s1, const char *s2, int len) {
 
 /* use one GPU thread to count the number of unique key */
 
-__global__ static void count_unique_keys_int(int *key, int tupleNum, int *result) {
+extern "C" __global__ void count_unique_keys_int(int *key, int tupleNum, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -63,7 +55,7 @@ __global__ static void count_unique_keys_int(int *key, int tupleNum, int *result
   *result = res;
 }
 
-__global__ static void count_unique_keys_float(float *key, int tupleNum, int *result) {
+extern "C" __global__ void count_unique_keys_float(float *key, int tupleNum, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -73,7 +65,7 @@ __global__ static void count_unique_keys_float(float *key, int tupleNum, int *re
   *result = res;
 }
 
-__global__ static void count_unique_keys_string(char *key, int tupleNum, int keySize, int *result) {
+extern "C" __global__ void count_unique_keys_string(char *key, int tupleNum, int keySize, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -87,7 +79,7 @@ __global__ static void count_unique_keys_string(char *key, int tupleNum, int key
  * Count the number of each key using one single GPU thread.
  */
 
-__global__ static void count_key_num_int(int *key, int tupleNum, int *count) {
+extern "C" __global__ void count_key_num_int(int *key, int tupleNum, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -110,7 +102,7 @@ __global__ static void count_key_num_int(int *key, int tupleNum, int *count) {
   }
 }
 
-__global__ static void count_key_num_float(float *key, int tupleNum, int *count) {
+extern "C" __global__ void count_key_num_float(float *key, int tupleNum, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -133,7 +125,7 @@ __global__ static void count_key_num_float(float *key, int tupleNum, int *count)
   }
 }
 
-__global__ static void count_key_num_string(char *key, int tupleNum, int keySize, int *count) {
+extern "C" __global__ void count_key_num_string(char *key, int tupleNum, int keySize, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -199,7 +191,7 @@ __device__ static inline void Comparator(char *keyA, int &valA, char *keyB, int 
 
 #define NTHREAD (SHARED_SIZE_LIMIT / 2)
 
-__global__ static void sort_key_string(char *key, int tupleNum, int keySize, char *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_string(char *key, int tupleNum, int keySize, char *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -248,7 +240,7 @@ __global__ static void sort_key_string(char *key, int tupleNum, int keySize, cha
  * Sorting small number of intergers.
  */
 
-__global__ static void sort_key_int(int *key, int tupleNum, int *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_int(int *key, int tupleNum, int *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -294,7 +286,7 @@ __global__ static void sort_key_int(int *key, int tupleNum, int *result, int *po
  * Sorting small number of floats.
  */
 
-__global__ static void sort_key_float(float *key, int tupleNum, float *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_float(float *key, int tupleNum, float *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -339,7 +331,8 @@ __global__ static void sort_key_float(float *key, int tupleNum, float *result, i
 /*
  * Naive sort. One thread per block.
  */
-__global__ static void sec_sort_key_int(int *key, int *psum, int *count, int tupleNum, int *inputPos, int *outputPos) {
+extern "C" __global__ void sec_sort_key_int(int *key, int *psum, int *count, int tupleNum, int *inputPos,
+                                            int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
   int end = start + count[tid];
@@ -361,8 +354,8 @@ __global__ static void sec_sort_key_int(int *key, int *psum, int *count, int tup
   outputPos[end - 1] = inputPos[end - 1];
 }
 
-__global__ static void sec_sort_key_float(float *key, int *psum, int *count, int tupleNum, int *inputPos,
-                                          int *outputPos) {
+extern "C" __global__ void sec_sort_key_float(float *key, int *psum, int *count, int tupleNum, int *inputPos,
+                                              int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
   int end = start + count[tid];
@@ -384,8 +377,8 @@ __global__ static void sec_sort_key_float(float *key, int *psum, int *count, int
   outputPos[end - 1] = inputPos[end - 1];
 }
 
-__global__ static void sec_sort_key_string(char *key, int keySize, int *psum, int *count, int tupleNum, int *inputPos,
-                                           int *outputPos) {
+extern "C" __global__ void sec_sort_key_string(char *key, int keySize, int *psum, int *count, int tupleNum,
+                                               int *inputPos, int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
   int end = start + count[tid];
@@ -462,7 +455,7 @@ int* outputPos){ int tid = blockIdx.x; int start = psum[tid]; int end = start + 
 }
 */
 
-__global__ static void set_key_string(char *key, int tupleNum) {
+extern "C" __global__ void set_key_string(char *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -471,7 +464,7 @@ __global__ static void set_key_string(char *key, int tupleNum) {
     key[i] = CHAR_MAX;
 }
 
-__global__ static void set_key_int(int *key, int tupleNum) {
+extern "C" __global__ void set_key_int(int *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -480,7 +473,7 @@ __global__ static void set_key_int(int *key, int tupleNum) {
     key[i] = INT_MAX;
 }
 
-__global__ static void set_key_float(float *key, int tupleNum) {
+extern "C" __global__ void set_key_float(float *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -493,7 +486,7 @@ __global__ static void set_key_float(float *key, int tupleNum) {
  * gather the elements from the @col into @result.
  */
 
-__global__ static void gather_col_int(int *keyPos, int *col, int newNum, int tupleNum, int *result) {
+extern "C" __global__ void gather_col_int(int *keyPos, int *col, int newNum, int tupleNum, int *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -504,7 +497,7 @@ __global__ static void gather_col_int(int *keyPos, int *col, int newNum, int tup
   }
 }
 
-__global__ static void gather_col_float(int *keyPos, float *col, int newNum, int tupleNum, float *result) {
+extern "C" __global__ void gather_col_float(int *keyPos, float *col, int newNum, int tupleNum, float *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -515,7 +508,8 @@ __global__ static void gather_col_float(int *keyPos, float *col, int newNum, int
   }
 }
 
-__global__ static void gather_col_string(int *keyPos, char *col, int newNum, int tupleNum, int keySize, char *result) {
+extern "C" __global__ void gather_col_string(int *keyPos, char *col, int newNum, int tupleNum, int keySize,
+                                             char *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -528,8 +522,8 @@ __global__ static void gather_col_string(int *keyPos, char *col, int newNum, int
 
 /* generate the final result*/
 
-__global__ static void gather_result(int *keyPos, char **col, int newNum, int tupleNum, int *size, int colNum,
-                                     char **result) {
+extern "C" __global__ void gather_result(int *keyPos, char **col, int newNum, int tupleNum, int *size, int colNum,
+                                         char **result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -665,41 +659,41 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
     CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&gpuSortedKey, sizeof(int) * newNum));
 
     GMM_CALL(cudaAdvise(0, CADV_OUTPUT));
-    set_key_int<<<8, 128>>>((int *)gpuKey, newNum);
+    set_key_int<<<8, 128>>> ((int *)gpuKey, newNum);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpuKey, column[index], sizeof(int) * gpuTupleNum, cudaMemcpyDeviceToDevice));
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
-    sort_key_int<<<1, newNum / 2>>>((int *)gpuKey, newNum, (int *)gpuSortedKey, gpuPos, dir);
+    sort_key_int<<<1, newNum / 2>>> ((int *)gpuKey, newNum, (int *)gpuSortedKey, gpuPos, dir);
   } else if (type == FLOAT) {
     CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&gpuKey, sizeof(float) * newNum));
     CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&gpuSortedKey, sizeof(float) * newNum));
 
     GMM_CALL(cudaAdvise(0, CADV_OUTPUT));
-    set_key_float<<<8, 128>>>((float *)gpuKey, newNum);
+    set_key_float<<<8, 128>>> ((float *)gpuKey, newNum);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpuKey, column[index], sizeof(int) * gpuTupleNum, cudaMemcpyDeviceToDevice));
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
-    sort_key_float<<<1, newNum / 2>>>((float *)gpuKey, newNum, (float *)gpuSortedKey, gpuPos, dir);
+    sort_key_float<<<1, newNum / 2>>> ((float *)gpuKey, newNum, (float *)gpuSortedKey, gpuPos, dir);
   } else if (type == STRING) {
     int keySize = odNode->table->attrSize[index];
     CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&gpuKey, keySize * newNum));
     CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&gpuSortedKey, keySize * newNum));
 
     GMM_CALL(cudaAdvise(0, CADV_OUTPUT));
-    set_key_string<<<8, 128>>>(gpuKey, newNum * keySize);
+    set_key_string<<<8, 128>>> (gpuKey, newNum * keySize);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpuKey, column[index], keySize * gpuTupleNum, cudaMemcpyDeviceToDevice));
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
     GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
-    sort_key_string<<<1, newNum / 2>>>(gpuKey, newNum, keySize, gpuSortedKey, gpuPos, dir);
+    sort_key_string<<<1, newNum / 2>>> (gpuKey, newNum, keySize, gpuSortedKey, gpuPos, dir);
   }
 
   /* Currently we only support no more than 2 orderBy columns */
@@ -715,15 +709,15 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
     if (type == INT) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
-      count_unique_keys_int<<<1, 1>>>((int *)gpuSortedKey, gpuTupleNum, keyNum);
+      count_unique_keys_int<<<1, 1>>> ((int *)gpuSortedKey, gpuTupleNum, keyNum);
     } else if (type == FLOAT) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
-      count_unique_keys_float<<<1, 1>>>((float *)gpuSortedKey, gpuTupleNum, keyNum);
+      count_unique_keys_float<<<1, 1>>> ((float *)gpuSortedKey, gpuTupleNum, keyNum);
     } else if (type == STRING) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
-      count_unique_keys_string<<<1, 1>>>(gpuSortedKey, gpuTupleNum, keySize, keyNum);
+      count_unique_keys_string<<<1, 1>>> (gpuSortedKey, gpuTupleNum, keySize, keyNum);
     }
 
     int cpuKeyNum;
@@ -736,15 +730,15 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
     if (type == INT) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
-      count_key_num_int<<<1, 1>>>((int *)gpuSortedKey, gpuTupleNum, keyCount);
+      count_key_num_int<<<1, 1>>> ((int *)gpuSortedKey, gpuTupleNum, keyCount);
     } else if (type == FLOAT) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_OUTPUT));
-      count_key_num_float<<<1, 1>>>((float *)gpuSortedKey, gpuTupleNum, keyCount);
+      count_key_num_float<<<1, 1>>> ((float *)gpuSortedKey, gpuTupleNum, keyCount);
     } else if (type == STRING) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(3, CADV_OUTPUT));
-      count_key_num_string<<<1, 1>>>(gpuSortedKey, gpuTupleNum, keySize, keyCount);
+      count_key_num_string<<<1, 1>>> (gpuSortedKey, gpuTupleNum, keySize, keyCount);
     }
     scanImpl(keyCount, cpuKeyNum, keyPsum, pp);
 
@@ -758,45 +752,45 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
-      gather_col_int<<<8, 128>>>(gpuPos, (int *)column[secIndex], newNum, gpuTupleNum, (int *)gpuKey2);
+      gather_col_int<<<8, 128>>> (gpuPos, (int *)column[secIndex], newNum, gpuTupleNum, (int *)gpuKey2);
 
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-      sec_sort_key_int<<<cpuKeyNum, 1>>>((int *)gpuKey2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
+      sec_sort_key_int<<<cpuKeyNum, 1>>> ((int *)gpuKey2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
     } else if (secType == FLOAT) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_OUTPUT));
-      gather_col_float<<<8, 128>>>(gpuPos, (float *)column[secIndex], newNum, gpuTupleNum, (float *)gpuKey2);
+      gather_col_float<<<8, 128>>> (gpuPos, (float *)column[secIndex], newNum, gpuTupleNum, (float *)gpuKey2);
 
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_INPUT));
       GMM_CALL(cudaAdvise(4, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-      sec_sort_key_float<<<cpuKeyNum, 1>>>((float *)gpuKey2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
+      sec_sort_key_float<<<cpuKeyNum, 1>>> ((float *)gpuKey2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
     } else if (secType == STRING) {
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(1, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_OUTPUT));
-      gather_col_string<<<8, 128>>>(gpuPos, column[secIndex], newNum, gpuTupleNum, keySize2, gpuKey2);
+      gather_col_string<<<8, 128>>> (gpuPos, column[secIndex], newNum, gpuTupleNum, keySize2, gpuKey2);
 
       GMM_CALL(cudaAdvise(0, CADV_INPUT));
       GMM_CALL(cudaAdvise(2, CADV_INPUT));
       GMM_CALL(cudaAdvise(3, CADV_INPUT));
       GMM_CALL(cudaAdvise(5, CADV_INPUT));
       GMM_CALL(cudaAdvise(6, CADV_OUTPUT));
-      sec_sort_key_string<<<cpuKeyNum, 1>>>(gpuKey2, keySize2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
+      sec_sort_key_string<<<cpuKeyNum, 1>>> (gpuKey2, keySize2, keyPsum, keyCount, gpuTupleNum, gpuPos, gpuPos2);
     }
 
     GMM_CALL(cudaAdvise(0, CADV_INPUT));
     GMM_CALL(cudaAdvise(1, CADV_INPUT | CADV_PTAINPUT));
     GMM_CALL(cudaAdvise(4, CADV_INPUT));
     GMM_CALL(cudaAdvise(6, CADV_INPUT | CADV_PTAOUTPUT));
-    gather_result<<<8, 128>>>(gpuPos2, gpuContent, newNum, gpuTupleNum, gpuSize, res->totalAttr, gpuResult);
+    gather_result<<<8, 128>>> (gpuPos2, gpuContent, newNum, gpuTupleNum, gpuSize, res->totalAttr, gpuResult);
 
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(keyCount));
     CUDA_SAFE_CALL_NO_SYNC(cudaFree(keyNum));
@@ -808,7 +802,7 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
     GMM_CALL(cudaAdvise(1, CADV_INPUT | CADV_PTAINPUT));
     GMM_CALL(cudaAdvise(4, CADV_INPUT));
     GMM_CALL(cudaAdvise(6, CADV_INPUT | CADV_PTAOUTPUT));
-    gather_result<<<8, 128>>>(gpuPos, gpuContent, newNum, gpuTupleNum, gpuSize, res->totalAttr, gpuResult);
+    gather_result<<<8, 128>>> (gpuPos, gpuContent, newNum, gpuTupleNum, gpuSize, res->totalAttr, gpuResult);
   }
 
   for (int i = 0; i < res->totalAttr; i++) {

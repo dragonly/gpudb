@@ -29,13 +29,14 @@
 #ifndef _PRESCAN_CU_
 #define _PRESCAN_CU_
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "scanLargeArray_kernel.cu"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include <assert.h>
 #ifdef HAS_GMM
 #include "gmm.h"
 #endif
+// this is embarrassingly working by means of stick three .cu files together
+#include "scanLargeArray_kernel.cu"
 
 static inline bool isPowerOfTwo(int n) { return ((n & (n - 1)) == 0); }
 

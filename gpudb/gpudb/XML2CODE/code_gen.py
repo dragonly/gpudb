@@ -141,8 +141,8 @@ def generate_loader():
     print >>fo, "#include <string.h>"
     print >>fo, "#include <getopt.h>"
     print >>fo, "#include <linux/limits.h>"
-    print >>fo, "#include \"../include/schema.h\""
-    print >>fo, "#include \"../include/common.h\""
+    print >>fo, "#include \"schema.h\""
+    print >>fo, "#include \"common.h\""
     print >>fo, "#define CHECK_POINTER(p) do {\\"
     print >>fo, "\tif(p == NULL){   \\"
     print >>fo, "\t\tperror(\"Failed to allocate host memory\");    \\"
@@ -782,18 +782,18 @@ def generate_code(tree):
     print >>fo, "#include <time.h>"
     print >>fo, "#include <getopt.h>"
     print >>fo, "#include <linux/limits.h>"
-    print >>fo, "#include \"../include/common.h\""
+    print >>fo, "#include \"common.h\""
 
     if joinType == 0:
-        print >>fo, "#include \"../include/hashJoin.h\""
+        print >>fo, "#include \"hashJoin.h\""
     else:
-        print >>fo, "#include \"../include/inviJoin.h\""
+        print >>fo, "#include \"inviJoin.h\""
 
-    print >>fo, "#include \"../include/schema.h\""
+    print >>fo, "#include \"schema.h\""
 
     if CODETYPE == 0:
-        print >>fo, "#include \"../include/cpuCudaLib.h\""
-        print >>fo, "#include \"../include/gpuCudaLib.h\""
+        print >>fo, "#include \"cpuCudaLib.h\""
+        print >>fo, "#include \"gpuCudaLib.h\""
 
         print >>fo, "extern struct tableNode* tableScan(struct scanNode *,struct statistic *);"
         if joinType == 0:
@@ -807,8 +807,8 @@ def generate_code(tree):
     else:
         print >>fo, "#include <CL/cl.h>"
         print >>fo, "#include <string>"
-        print >>fo, "#include \"../include/gpuOpenclLib.h\"\n"
-        print >>fo, "#include\"../include/cpuOpenclLib.h\""
+        print >>fo, "#include \"gpuOpenclLib.h\"\n"
+        print >>fo, "#include\"cpuOpenclLib.h\""
         print >>fo, "using namespace std;"
         print >>fo, "extern const char * createProgram(string, int *);"
 
