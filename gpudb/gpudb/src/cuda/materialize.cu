@@ -14,9 +14,9 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "../include/schema.h"
+#include "common.h"
+#include "gpuCudaLib.h"
+#include "schema.h"
 #include <cuda.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,15 +25,7 @@
 #include "gmm.h"
 #endif
 
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
-
-__global__ static void materialize(char **content, int colNum, int *attrSize, long tupleNum, int tupleSize,
+extern "C" __global__ void materialize(char **content, int colNum, int *attrSize, long tupleNum, int tupleSize,
                                    char *result) {
   int startIndex = blockIdx.x * blockDim.x + threadIdx.x;
 

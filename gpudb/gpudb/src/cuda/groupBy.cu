@@ -14,22 +14,13 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/cudaHash.h"
-#include "../include/gpuCudaLib.h"
-#include "scanImpl.cu"
+#include "common.h"
+#include "cudaHash.h"
+#include "gpuCudaLib.h"
 #include <cuda.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
 
 /*
  * Transform integer to string using one single gpu thread.
@@ -117,7 +108,7 @@ __device__ static char *gpuStrcat(char *dest, const char *src) {
  * Combine the group by columns to build the group by keys.
  */
 
-__global__ static void build_groupby_key(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
+extern "C" __global__ void build_groupby_key(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
                                          long tupleNum, int *key, int *num) {
 
   int stride = blockDim.x * gridDim.x;
@@ -152,7 +143,7 @@ __global__ static void build_groupby_key(char **content, int gbColNum, int *gbIn
  * This is for testing only.
  */
 
-__global__ static void build_groupby_key_soa(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
+extern "C" __global__ void build_groupby_key_soa(char **content, int gbColNum, int *gbIndex, int *gbType, int *gbSize,
                                              long tupleNum, int *key, int *num) {
 
   int stride = blockDim.x * gridDim.x;
@@ -191,7 +182,7 @@ __global__ static void build_groupby_key_soa(char **content, int gbColNum, int *
  * Count the number of groups
  */
 
-__global__ void count_group_num(int *num, int tupleNum, int *totalCount) {
+extern "C" __global__ void count_group_num(int *num, int tupleNum, int *totalCount) {
   int stride = blockDim.x * gridDim.x;
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
   int localCount = 0;
@@ -240,7 +231,7 @@ __device__ static float calMathExp(char **content, struct mathExp *exp, int pos,
  * group by constant. Currently only support SUM function.
  */
 
-__global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
+extern "C" __global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
                              int *gbType, int *gbSize, long tupleNum, int *key, int *psum, char **result) {
 
   int stride = blockDim.x * gridDim.x;
@@ -268,7 +259,7 @@ __global__ void agg_cal_cons(char **content, int colNum, int *funcArray, int *op
  * gropu by
  */
 
-__global__ void agg_cal(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
+extern "C" __global__ void agg_cal(char **content, int colNum, int *funcArray, int *op, struct mathExp *exp, int *mathOffset,
                         int *gbType, int *gbSize, long tupleNum, int *key, int *psum, char **result) {
 
   int stride = blockDim.x * gridDim.x;

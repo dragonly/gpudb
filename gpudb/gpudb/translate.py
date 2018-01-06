@@ -66,7 +66,7 @@ def main():
         tmpFile = str(datetime.datetime.now()).replace(' ', '_') + '.xml'
         tmpFilePath = './' + TEMP_DIR + '/' + tmpFile
 
-        print '--------------------------------------------------------------------'
+        print '---------------------------[ {} ]------------------------------'.format(queryFile)
         print 'Generating XML tree ...'
         genXMLTree(queryFile, tmpFilePath)
 

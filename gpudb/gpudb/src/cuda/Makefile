@@ -27,24 +27,29 @@ endif
 DATAPATH := /home/lyl/gpudb/gpudb/data
 GMMPATH := /home/lyl/gpudb/gpudb/gmm
 LDFLAGS += -L$(GMMPATH)
-CFLAGS := -I$(GMMPATH)
+CFLAGS := -I$(GMMPATH) -I../include
+SRC := tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu scanImpl.cu
+OBJ := tableScan.o  hashJoin.o  cuckoo.o  inviJoin.o  materialize.o  groupBy.o  orderBy.o  scanImpl.o
 
 all: gmmdb
 
+modules: $(SRC) driver.cu
+	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -pg $(SRC) driver.cu $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
+
 gmmdb: gmm cpu
-	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupby.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
 
 gpudb: gpu cpu
-	 $(NVCC) -pg tableScan.o inviJoin.o hashJoin.o cuckoo.o materialize.o groupby.o orderBy.o driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
+	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
+
+gmm: $(SRC)
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC)
 
 cpu: driver.cu 
-	$(NVCC) -c -g $(GENCODE_FLAGS) driver.cu
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) driver.cu
 
-gpu: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu 
-
-gmm: tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupby.cu orderBy.cu 
+gpu: $(SRC)
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) $(SRC)
 
 run:
 	LD_PRELOAD=../../../lib-intercept/libicept.so ./GPUDATABASE --datadir ../../data

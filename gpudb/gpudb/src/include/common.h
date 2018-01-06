@@ -17,17 +17,28 @@
 #ifndef __SSB_COMMON__
 #define __SSB_COMMON__
 #include <stdio.h>
+#include <assert.h>
 
 #define BILLION     1000000000
 #define BLOCKNUM    (100*1024*1024)
 #define HSIZE 131072
 
 #ifdef HAS_GMM
-        #include "gmm.h"
+  #include "gmm.h"
 	#define GMM_CALL(_f)	_f
 #else
 	#define GMM_CALL(_f)	
 #endif
+
+void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp);
+
+#define CHECK_POINTER(p)                                                                                               \
+  do {                                                                                                                 \
+    if (p == NULL) {                                                                                                   \
+      perror("Failed to allocate host memory");                                                                        \
+      exit(-1);                                                                                                        \
+    }                                                                                                                  \
+  } while (0)
 
 enum {
 

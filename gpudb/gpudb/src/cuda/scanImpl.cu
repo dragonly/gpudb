@@ -1,11 +1,11 @@
 #ifndef SCAN_IMPL_CU
 #define SCAN_IMPL_CU
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include "scan.cu"
 
-static void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp) {
+void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp) {
   int len = 2;
   if (rLen < len) {
     int *input, *output;

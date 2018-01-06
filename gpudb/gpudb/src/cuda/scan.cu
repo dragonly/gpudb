@@ -29,8 +29,8 @@
 #ifndef _PRESCAN_CU_
 #define _PRESCAN_CU_
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include "scanLargeArray_kernel.cu"
 #include <assert.h>
 #ifdef HAS_GMM

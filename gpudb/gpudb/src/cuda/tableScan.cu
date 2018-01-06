@@ -14,9 +14,8 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "scanImpl.cu"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,14 +28,6 @@
 #ifdef HAS_GMM
 #include "gmm.h"
 #endif
-
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
 
 /*
  * stringCmp: Compare two strings on GPU using one single GPU thread.
@@ -135,7 +126,7 @@ __device__ static inline int testCon(char *buf1, char *buf2, int size, int type,
  * @filter: the filter for the uncompressed data
  */
 
-__global__ static void transform_dict_filter_and(int *dictFilter, char *dictFact, long tupleNum, int dNum, int *filter,
+extern "C" __global__ void transform_dict_filter_and(int *dictFilter, char *dictFact, long tupleNum, int dNum, int *filter,
                                                  int byteNum) {
 
   int stride = blockDim.x * gridDim.x;
@@ -157,7 +148,7 @@ __global__ static void transform_dict_filter_and(int *dictFilter, char *dictFact
   }
 }
 
-__global__ static void transform_dict_filter_init(int *dictFilter, char *dictFact, long tupleNum, int dNum, int *filter,
+extern "C" __global__ void transform_dict_filter_init(int *dictFilter, char *dictFact, long tupleNum, int dNum, int *filter,
                                                   int byteNum) {
 
   int stride = blockDim.x * gridDim.x;
@@ -178,7 +169,7 @@ __global__ static void transform_dict_filter_init(int *dictFilter, char *dictFac
   }
 }
 
-__global__ static void transform_dict_filter_or(int *dictFilter, char *fact, long tupleNum, int dNum, int *filter,
+extern "C" __global__ void transform_dict_filter_or(int *dictFilter, char *fact, long tupleNum, int dNum, int *filter,
                                                 int byteNum) {
 
   int stride = blockDim.x * gridDim.x;
@@ -202,7 +193,7 @@ __global__ static void transform_dict_filter_or(int *dictFilter, char *fact, lon
  * genScanFilter_dict_init: generate the filter for dictionary-compressed predicate
  */
 
-__global__ static void genScanFilter_dict_init(struct dictHeader *dheader, int colSize, int colType, int dNum,
+extern "C" __global__ void genScanFilter_dict_init(struct dictHeader *dheader, int colSize, int colType, int dNum,
                                                struct whereExp *where, int *dfilter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -215,7 +206,7 @@ __global__ static void genScanFilter_dict_init(struct dictHeader *dheader, int c
   }
 }
 
-__global__ static void genScanFilter_dict_or(struct dictHeader *dheader, int colSize, int colType, int dNum,
+extern "C" __global__ void genScanFilter_dict_or(struct dictHeader *dheader, int colSize, int colType, int dNum,
                                              struct whereExp *where, int *dfilter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -228,7 +219,7 @@ __global__ static void genScanFilter_dict_or(struct dictHeader *dheader, int col
   }
 }
 
-__global__ static void genScanFilter_dict_and(struct dictHeader *dheader, int colSize, int colType, int dNum,
+extern "C" __global__ void genScanFilter_dict_and(struct dictHeader *dheader, int colSize, int colType, int dNum,
                                               struct whereExp *where, int *dfilter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -241,7 +232,7 @@ __global__ static void genScanFilter_dict_and(struct dictHeader *dheader, int co
   }
 }
 
-__global__ static void genScanFilter_rle(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_rle(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
                                          int andOr, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -266,7 +257,7 @@ __global__ static void genScanFilter_rle(char *col, int colSize, int colType, lo
   }
 }
 
-__global__ static void genScanFilter_and_eq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_eq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                             int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -278,7 +269,7 @@ __global__ static void genScanFilter_and_eq(char *col, int colSize, long tupleNu
   }
 }
 
-__global__ static void genScanFilter_and_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                              int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -290,7 +281,7 @@ __global__ static void genScanFilter_and_gth(char *col, int colSize, long tupleN
   }
 }
 
-__global__ static void genScanFilter_and_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                              int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -302,7 +293,7 @@ __global__ static void genScanFilter_and_lth(char *col, int colSize, long tupleN
   }
 }
 
-__global__ static void genScanFilter_and_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                              int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -314,7 +305,7 @@ __global__ static void genScanFilter_and_geq(char *col, int colSize, long tupleN
   }
 }
 
-__global__ static void genScanFilter_and_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                              int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -326,7 +317,7 @@ __global__ static void genScanFilter_and_leq(char *col, int colSize, long tupleN
   }
 }
 
-__global__ static void genScanFilter_and_soa(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_and_soa(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
                                              int *filter) {
 
   int stride = blockDim.x * gridDim.x;
@@ -363,7 +354,7 @@ __global__ static void genScanFilter_and_soa(char *col, int colSize, int colType
   }
 }
 
-__global__ static void genScanFilter_init_int_eq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_init_int_eq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -373,7 +364,7 @@ __global__ static void genScanFilter_init_int_eq(char *col, long tupleNum, int w
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_float_eq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_init_float_eq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -384,7 +375,7 @@ __global__ static void genScanFilter_init_float_eq(char *col, long tupleNum, flo
   }
 }
 
-__global__ static void genScanFilter_init_int_gth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_init_int_gth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -395,7 +386,7 @@ __global__ static void genScanFilter_init_int_gth(char *col, long tupleNum, int 
   }
 }
 
-__global__ static void genScanFilter_init_float_gth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_init_float_gth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -405,7 +396,7 @@ __global__ static void genScanFilter_init_float_gth(char *col, long tupleNum, fl
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_int_lth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_init_int_lth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -415,7 +406,7 @@ __global__ static void genScanFilter_init_int_lth(char *col, long tupleNum, int 
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_float_lth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_init_float_lth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -425,7 +416,7 @@ __global__ static void genScanFilter_init_float_lth(char *col, long tupleNum, fl
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_int_geq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_init_int_geq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -435,7 +426,7 @@ __global__ static void genScanFilter_init_int_geq(char *col, long tupleNum, int 
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_float_geq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_init_float_geq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -445,7 +436,7 @@ __global__ static void genScanFilter_init_float_geq(char *col, long tupleNum, fl
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_int_leq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_init_int_leq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -455,7 +446,7 @@ __global__ static void genScanFilter_init_int_leq(char *col, long tupleNum, int 
     filter[i] = con;
   }
 }
-__global__ static void genScanFilter_init_float_leq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_init_float_leq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -466,7 +457,7 @@ __global__ static void genScanFilter_init_float_leq(char *col, long tupleNum, fl
   }
 }
 
-__global__ static void genScanFilter_and_int_eq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_and_int_eq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -477,7 +468,7 @@ __global__ static void genScanFilter_and_int_eq(char *col, long tupleNum, int wh
   }
 }
 
-__global__ static void genScanFilter_and_float_eq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_and_float_eq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -488,7 +479,7 @@ __global__ static void genScanFilter_and_float_eq(char *col, long tupleNum, floa
   }
 }
 
-__global__ static void genScanFilter_and_int_geq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_and_int_geq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -499,7 +490,7 @@ __global__ static void genScanFilter_and_int_geq(char *col, long tupleNum, int w
   }
 }
 
-__global__ static void genScanFilter_and_float_geq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_and_float_geq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -510,7 +501,7 @@ __global__ static void genScanFilter_and_float_geq(char *col, long tupleNum, flo
   }
 }
 
-__global__ static void genScanFilter_and_int_leq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_and_int_leq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -521,7 +512,7 @@ __global__ static void genScanFilter_and_int_leq(char *col, long tupleNum, int w
   }
 }
 
-__global__ static void genScanFilter_and_float_leq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_and_float_leq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -532,7 +523,7 @@ __global__ static void genScanFilter_and_float_leq(char *col, long tupleNum, flo
   }
 }
 
-__global__ static void genScanFilter_and_int_gth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_and_int_gth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -543,7 +534,7 @@ __global__ static void genScanFilter_and_int_gth(char *col, long tupleNum, int w
   }
 }
 
-__global__ static void genScanFilter_and_float_gth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_and_float_gth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -554,7 +545,7 @@ __global__ static void genScanFilter_and_float_gth(char *col, long tupleNum, flo
   }
 }
 
-__global__ static void genScanFilter_and_int_lth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_and_int_lth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -565,7 +556,7 @@ __global__ static void genScanFilter_and_int_lth(char *col, long tupleNum, int w
   }
 }
 
-__global__ static void genScanFilter_and_float_lth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_and_float_lth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -576,7 +567,7 @@ __global__ static void genScanFilter_and_float_lth(char *col, long tupleNum, flo
   }
 }
 
-__global__ static void genScanFilter_init_eq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_init_eq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                              int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -588,7 +579,7 @@ __global__ static void genScanFilter_init_eq(char *col, int colSize, long tupleN
   }
 }
 
-__global__ static void genScanFilter_init_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_init_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                               int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -600,7 +591,7 @@ __global__ static void genScanFilter_init_gth(char *col, int colSize, long tuple
   }
 }
 
-__global__ static void genScanFilter_init_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_init_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                               int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -612,7 +603,7 @@ __global__ static void genScanFilter_init_lth(char *col, int colSize, long tuple
   }
 }
 
-__global__ static void genScanFilter_init_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_init_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                               int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -624,7 +615,7 @@ __global__ static void genScanFilter_init_geq(char *col, int colSize, long tuple
   }
 }
 
-__global__ static void genScanFilter_init_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_init_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                               int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -636,7 +627,7 @@ __global__ static void genScanFilter_init_leq(char *col, int colSize, long tuple
   }
 }
 
-__global__ static void genScanFilter_or_eq(char *col, int colSize, long tupleNum, struct whereExp *where, int *filter) {
+extern "C" __global__ void genScanFilter_or_eq(char *col, int colSize, long tupleNum, struct whereExp *where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -647,7 +638,7 @@ __global__ static void genScanFilter_or_eq(char *col, int colSize, long tupleNum
   }
 }
 
-__global__ static void genScanFilter_or_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_or_gth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                             int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -659,7 +650,7 @@ __global__ static void genScanFilter_or_gth(char *col, int colSize, long tupleNu
   }
 }
 
-__global__ static void genScanFilter_or_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_or_lth(char *col, int colSize, long tupleNum, struct whereExp *where,
                                             int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -671,7 +662,7 @@ __global__ static void genScanFilter_or_lth(char *col, int colSize, long tupleNu
   }
 }
 
-__global__ static void genScanFilter_or_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_or_geq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                             int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -683,7 +674,7 @@ __global__ static void genScanFilter_or_geq(char *col, int colSize, long tupleNu
   }
 }
 
-__global__ static void genScanFilter_or_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_or_leq(char *col, int colSize, long tupleNum, struct whereExp *where,
                                             int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -699,7 +690,7 @@ __global__ static void genScanFilter_or_leq(char *col, int colSize, long tupleNu
  * This is only for testing the performance of soa in certain cases.
  */
 
-__global__ static void genScanFilter_or_soa(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
+extern "C" __global__ void genScanFilter_or_soa(char *col, int colSize, int colType, long tupleNum, struct whereExp *where,
                                             int *filter) {
 
   int stride = blockDim.x * gridDim.x;
@@ -736,7 +727,7 @@ __global__ static void genScanFilter_or_soa(char *col, int colSize, int colType,
   }
 }
 
-__global__ static void genScanFilter_or_int_eq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_or_int_eq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -746,7 +737,7 @@ __global__ static void genScanFilter_or_int_eq(char *col, long tupleNum, int whe
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_float_eq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_or_float_eq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -757,7 +748,7 @@ __global__ static void genScanFilter_or_float_eq(char *col, long tupleNum, float
   }
 }
 
-__global__ static void genScanFilter_or_int_gth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_or_int_gth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -768,7 +759,7 @@ __global__ static void genScanFilter_or_int_gth(char *col, long tupleNum, int wh
   }
 }
 
-__global__ static void genScanFilter_or_float_gth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_or_float_gth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -778,7 +769,7 @@ __global__ static void genScanFilter_or_float_gth(char *col, long tupleNum, floa
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_int_lth(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_or_int_lth(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -788,7 +779,7 @@ __global__ static void genScanFilter_or_int_lth(char *col, long tupleNum, int wh
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_float_lth(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_or_float_lth(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -798,7 +789,7 @@ __global__ static void genScanFilter_or_float_lth(char *col, long tupleNum, floa
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_int_geq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_or_int_geq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -808,7 +799,7 @@ __global__ static void genScanFilter_or_int_geq(char *col, long tupleNum, int wh
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_float_geq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_or_float_geq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -818,7 +809,7 @@ __global__ static void genScanFilter_or_float_geq(char *col, long tupleNum, floa
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_int_leq(char *col, long tupleNum, int where, int *filter) {
+extern "C" __global__ void genScanFilter_or_int_leq(char *col, long tupleNum, int where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -828,7 +819,7 @@ __global__ static void genScanFilter_or_int_leq(char *col, long tupleNum, int wh
     filter[i] |= con;
   }
 }
-__global__ static void genScanFilter_or_float_leq(char *col, long tupleNum, float where, int *filter) {
+extern "C" __global__ void genScanFilter_or_float_leq(char *col, long tupleNum, float where, int *filter) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int con;
@@ -843,7 +834,7 @@ __global__ static void genScanFilter_or_float_leq(char *col, long tupleNum, floa
  * countScanNum: count the number of results that each thread generates.
  */
 
-__global__ static void countScanNum(int *filter, long tupleNum, int *count) {
+extern "C" __global__ void countScanNum(int *filter, long tupleNum, int *count) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int localCount = 0;
@@ -859,7 +850,7 @@ __global__ static void countScanNum(int *filter, long tupleNum, int *count) {
  * scan_dict_other: generate the result for dictionary-compressed column.
  */
 
-__global__ static void scan_dict_other(char *col, struct dictHeader *dheader, int byteNum, int colSize, long tupleNum,
+extern "C" __global__ void scan_dict_other(char *col, struct dictHeader *dheader, int byteNum, int colSize, long tupleNum,
                                        int *psum, long resultNum, int *filter, char *result) {
 
   int stride = blockDim.x * gridDim.x;
@@ -876,7 +867,7 @@ __global__ static void scan_dict_other(char *col, struct dictHeader *dheader, in
   }
 }
 
-__global__ static void scan_dict_int(char *col, struct dictHeader *dheader, int byteNum, int colSize, long tupleNum,
+extern "C" __global__ void scan_dict_int(char *col, struct dictHeader *dheader, int byteNum, int colSize, long tupleNum,
                                      int *psum, long resultNum, int *filter, char *result) {
 
   int stride = blockDim.x * gridDim.x;
@@ -897,7 +888,7 @@ __global__ static void scan_dict_int(char *col, struct dictHeader *dheader, int 
  * scan_other: generate scan result for uncompressed column.
  */
 
-__global__ static void scan_other(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
+extern "C" __global__ void scan_other(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
                                   char *result) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -912,7 +903,7 @@ __global__ static void scan_other(char *col, int colSize, long tupleNum, int *ps
   }
 }
 
-__global__ static void scan_other_soa(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
+extern "C" __global__ void scan_other_soa(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
                                       char *result) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -930,7 +921,7 @@ __global__ static void scan_other_soa(char *col, int colSize, long tupleNum, int
   }
 }
 
-__global__ static void scan_int(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
+extern "C" __global__ void scan_int(char *col, int colSize, long tupleNum, int *psum, long resultNum, int *filter,
                                 char *result) {
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -945,7 +936,7 @@ __global__ static void scan_int(char *col, int colSize, long tupleNum, int *psum
   }
 }
 
-__global__ void static unpack_rle(char *fact, char *rle, long tupleNum, int dNum) {
+extern "C" __global__ void unpack_rle_ts(char *fact, char *rle, long tupleNum, int dNum) {
 
   int offset = blockIdx.x * blockDim.x + threadIdx.x;
   int stride = blockDim.x * gridDim.x;
@@ -1115,10 +1106,10 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
       }
 
       int rel = where->exp[0].relation;
-      int if_later_call = 0;
-      for (int k = 0; k < sn->outputNum; k++)
-        if (index == sn->outputIndex[k])
-          if_later_call = 1;
+      //int if_later_call = 0;
+      //for (int k = 0; k < sn->outputNum; k++)
+      //  if (index == sn->outputIndex[k])
+      //    if_later_call = 1;
       if (sn->tn->attrType[index] == INT) {
         int whereValue = *((int *)where->exp[0].content);
         if (rel == EQ) {
@@ -1355,15 +1346,15 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
       }
 
       if (format == UNCOMPRESSED) {
-        int if_later_call = 0;
-        printf("~~[%d]", whereIndex);
-        for (int k = 0; k < sn->outputNum; k++) {
-          printf(" %d ", sn->outputIndex[k]);
-          if (index == sn->outputIndex[k]) {
-            if_later_call = 1;
-          }
-        }
-        printf("\n");
+        //int if_later_call = 0;
+        //printf("~~[%d]", whereIndex);
+        //for (int k = 0; k < sn->outputNum; k++) {
+        //  printf(" %d ", sn->outputIndex[k]);
+        //  if (index == sn->outputIndex[k]) {
+        //    if_later_call = 1;
+        //  }
+        //}
+        //printf("\n");
 
         int rel = where->exp[i].relation;
         if (sn->tn->attrType[index] == INT) {
@@ -1738,7 +1729,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
         GMM_CALL(cudaAdvise(0, CADV_INPUT));
         GMM_CALL(cudaAdvise(1, CADV_OUTPUT));
-        unpack_rle<<<grid, block>>>(scanCol[i], gpuRle, totalTupleNum, dNum);
+        unpack_rle_ts<<<grid, block>>>(scanCol[i], gpuRle, totalTupleNum, dNum);
 
         GMM_CALL(cudaAdvise(0, CADV_INPUT));
         GMM_CALL(cudaAdvise(3, CADV_INPUT));

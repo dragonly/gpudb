@@ -4,7 +4,11 @@
 *.pyc
 *.zip
 *.solo
+*.cubin
 .metadata
+log
+mpsclient
+mpsserver
 gpuDBLoader
 mqxctl
 gmon.out

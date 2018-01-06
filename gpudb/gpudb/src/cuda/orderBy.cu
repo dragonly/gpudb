@@ -14,9 +14,8 @@
    limitations under the License.
 */
 
-#include "../include/common.h"
-#include "../include/gpuCudaLib.h"
-#include "scanImpl.cu"
+#include "common.h"
+#include "gpuCudaLib.h"
 #include <assert.h>
 #include <cuda.h>
 #include <float.h>
@@ -25,14 +24,6 @@
 #ifdef HAS_GMM
 #include "gmm.h"
 #endif
-
-#define CHECK_POINTER(p)                                                                                               \
-  do {                                                                                                                 \
-    if (p == NULL) {                                                                                                   \
-      perror("Failed to allocate host memory");                                                                        \
-      exit(-1);                                                                                                        \
-    }                                                                                                                  \
-  } while (0)
 
 #define SHARED_SIZE_LIMIT 1024
 
@@ -53,7 +44,7 @@ __device__ static int gpu_strcmp(const char *s1, const char *s2, int len) {
 
 /* use one GPU thread to count the number of unique key */
 
-__global__ static void count_unique_keys_int(int *key, int tupleNum, int *result) {
+extern "C" __global__ void count_unique_keys_int(int *key, int tupleNum, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -63,7 +54,7 @@ __global__ static void count_unique_keys_int(int *key, int tupleNum, int *result
   *result = res;
 }
 
-__global__ static void count_unique_keys_float(float *key, int tupleNum, int *result) {
+extern "C" __global__ void count_unique_keys_float(float *key, int tupleNum, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -73,7 +64,7 @@ __global__ static void count_unique_keys_float(float *key, int tupleNum, int *re
   *result = res;
 }
 
-__global__ static void count_unique_keys_string(char *key, int tupleNum, int keySize, int *result) {
+extern "C" __global__ void count_unique_keys_string(char *key, int tupleNum, int keySize, int *result) {
   int i = 0;
   int res = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -87,7 +78,7 @@ __global__ static void count_unique_keys_string(char *key, int tupleNum, int key
  * Count the number of each key using one single GPU thread.
  */
 
-__global__ static void count_key_num_int(int *key, int tupleNum, int *count) {
+extern "C" __global__ void count_key_num_int(int *key, int tupleNum, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -110,7 +101,7 @@ __global__ static void count_key_num_int(int *key, int tupleNum, int *count) {
   }
 }
 
-__global__ static void count_key_num_float(float *key, int tupleNum, int *count) {
+extern "C" __global__ void count_key_num_float(float *key, int tupleNum, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -133,7 +124,7 @@ __global__ static void count_key_num_float(float *key, int tupleNum, int *count)
   }
 }
 
-__global__ static void count_key_num_string(char *key, int tupleNum, int keySize, int *count) {
+extern "C" __global__ void count_key_num_string(char *key, int tupleNum, int keySize, int *count) {
   int pos = 0, i = 0;
   int lcount = 1;
   for (i = 0; i < tupleNum - 1; i++) {
@@ -199,7 +190,7 @@ __device__ static inline void Comparator(char *keyA, int &valA, char *keyB, int 
 
 #define NTHREAD (SHARED_SIZE_LIMIT / 2)
 
-__global__ static void sort_key_string(char *key, int tupleNum, int keySize, char *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_string(char *key, int tupleNum, int keySize, char *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -248,7 +239,7 @@ __global__ static void sort_key_string(char *key, int tupleNum, int keySize, cha
  * Sorting small number of intergers.
  */
 
-__global__ static void sort_key_int(int *key, int tupleNum, int *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_int(int *key, int tupleNum, int *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -294,7 +285,7 @@ __global__ static void sort_key_int(int *key, int tupleNum, int *result, int *po
  * Sorting small number of floats.
  */
 
-__global__ static void sort_key_float(float *key, int tupleNum, float *result, int *pos, int dir) {
+extern "C" __global__ void sort_key_float(float *key, int tupleNum, float *result, int *pos, int dir) {
   int lid = threadIdx.x;
   int bid = blockIdx.x;
 
@@ -339,7 +330,7 @@ __global__ static void sort_key_float(float *key, int tupleNum, float *result, i
 /*
  * Naive sort. One thread per block.
  */
-__global__ static void sec_sort_key_int(int *key, int *psum, int *count, int tupleNum, int *inputPos, int *outputPos) {
+extern "C" __global__ void sec_sort_key_int(int *key, int *psum, int *count, int tupleNum, int *inputPos, int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
   int end = start + count[tid];
@@ -361,7 +352,7 @@ __global__ static void sec_sort_key_int(int *key, int *psum, int *count, int tup
   outputPos[end - 1] = inputPos[end - 1];
 }
 
-__global__ static void sec_sort_key_float(float *key, int *psum, int *count, int tupleNum, int *inputPos,
+extern "C" __global__ void sec_sort_key_float(float *key, int *psum, int *count, int tupleNum, int *inputPos,
                                           int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
@@ -384,7 +375,7 @@ __global__ static void sec_sort_key_float(float *key, int *psum, int *count, int
   outputPos[end - 1] = inputPos[end - 1];
 }
 
-__global__ static void sec_sort_key_string(char *key, int keySize, int *psum, int *count, int tupleNum, int *inputPos,
+extern "C" __global__ void sec_sort_key_string(char *key, int keySize, int *psum, int *count, int tupleNum, int *inputPos,
                                            int *outputPos) {
   int tid = blockIdx.x;
   int start = psum[tid];
@@ -409,60 +400,58 @@ __global__ static void sec_sort_key_string(char *key, int keySize, int *psum, in
   outputPos[end - 1] = inputPos[end - 1];
 }
 
-/*
-__global__ static void sec_sort_key_int(int *key, int *psum, int *count ,int tupleNum, int *inputPos, int* outputPos){
-    int tid = blockIdx.x;
-    int start = psum[tid];
-    int end = start + count[tid] - 1;
+//__global__ static void sec_sort_key_int(int *key, int *psum, int *count ,int tupleNum, int *inputPos, int* outputPos){
+//    int tid = blockIdx.x;
+//    int start = psum[tid];
+//    int end = start + count[tid] - 1;
+//
+//    for(int i=start; i< end-1; i++){
+//        int min = key[i];
+//        int pos = i;
+//        for(int j=i+1;j<end;j++){
+//            if(min > key[j]){
+//                min = key[j];
+//                pos = j;
+//            }
+//        }
+//        outputPos[i] = inputPos[pos];
+//    }
+//}
+//
+//__global__ static void sec_sort_key_float(float *key, int *psum, int *count ,int tupleNum, int *inputPos, int*
+//outputPos){ int tid = blockIdx.x; int start = psum[tid]; int end = start + count[tid] - 1;
+//
+//    for(int i=start; i< end-1; i++){
+//        float min = key[i];
+//        int pos = i;
+//        for(int j=i+1;j<end;j++){
+//            if(min > key[j]){
+//                min = key[j];
+//                pos = j;
+//            }
+//        }
+//        outputPos[i] = inputPos[pos];
+//    }
+//}
+//
+//__global__ static void sec_sort_key_string(char *key, int keySize, int *psum, int *count ,int tupleNum, int *inputPos,
+//int* outputPos){ int tid = blockIdx.x; int start = psum[tid]; int end = start + count[tid] - 1;
+//
+//    for(int i=start; i< end-1; i++){
+//        char min[128];
+//        memcpy(min,key + i*keySize, keySize);
+//        int pos = i;
+//        for(int j=i+1;j<end;j++){
+//            if(gpu_strcmp(min, key+j*keySize,keySize)>0){
+//                memcpy(min,key + j*keySize, keySize);
+//                pos = j;
+//            }
+//        }
+//        outputPos[i] = inputPos[pos];
+//    }
+//}
 
-    for(int i=start; i< end-1; i++){
-        int min = key[i];
-        int pos = i;
-        for(int j=i+1;j<end;j++){
-            if(min > key[j]){
-                min = key[j];
-                pos = j;
-            }
-        }
-        outputPos[i] = inputPos[pos];
-    }
-}
-
-__global__ static void sec_sort_key_float(float *key, int *psum, int *count ,int tupleNum, int *inputPos, int*
-outputPos){ int tid = blockIdx.x; int start = psum[tid]; int end = start + count[tid] - 1;
-
-    for(int i=start; i< end-1; i++){
-        float min = key[i];
-        int pos = i;
-        for(int j=i+1;j<end;j++){
-            if(min > key[j]){
-                min = key[j];
-                pos = j;
-            }
-        }
-        outputPos[i] = inputPos[pos];
-    }
-}
-
-__global__ static void sec_sort_key_string(char *key, int keySize, int *psum, int *count ,int tupleNum, int *inputPos,
-int* outputPos){ int tid = blockIdx.x; int start = psum[tid]; int end = start + count[tid] - 1;
-
-    for(int i=start; i< end-1; i++){
-        char min[128];
-        memcpy(min,key + i*keySize, keySize);
-        int pos = i;
-        for(int j=i+1;j<end;j++){
-            if(gpu_strcmp(min, key+j*keySize,keySize)>0){
-                memcpy(min,key + j*keySize, keySize);
-                pos = j;
-            }
-        }
-        outputPos[i] = inputPos[pos];
-    }
-}
-*/
-
-__global__ static void set_key_string(char *key, int tupleNum) {
+extern "C" __global__ void set_key_string(char *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -471,7 +460,7 @@ __global__ static void set_key_string(char *key, int tupleNum) {
     key[i] = CHAR_MAX;
 }
 
-__global__ static void set_key_int(int *key, int tupleNum) {
+extern "C" __global__ void set_key_int(int *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -480,7 +469,7 @@ __global__ static void set_key_int(int *key, int tupleNum) {
     key[i] = INT_MAX;
 }
 
-__global__ static void set_key_float(float *key, int tupleNum) {
+extern "C" __global__ void set_key_float(float *key, int tupleNum) {
 
   int stride = blockDim.x * gridDim.x;
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -493,7 +482,7 @@ __global__ static void set_key_float(float *key, int tupleNum) {
  * gather the elements from the @col into @result.
  */
 
-__global__ static void gather_col_int(int *keyPos, int *col, int newNum, int tupleNum, int *result) {
+extern "C" __global__ void gather_col_int(int *keyPos, int *col, int newNum, int tupleNum, int *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -504,7 +493,7 @@ __global__ static void gather_col_int(int *keyPos, int *col, int newNum, int tup
   }
 }
 
-__global__ static void gather_col_float(int *keyPos, float *col, int newNum, int tupleNum, float *result) {
+extern "C" __global__ void gather_col_float(int *keyPos, float *col, int newNum, int tupleNum, float *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -515,7 +504,7 @@ __global__ static void gather_col_float(int *keyPos, float *col, int newNum, int
   }
 }
 
-__global__ static void gather_col_string(int *keyPos, char *col, int newNum, int tupleNum, int keySize, char *result) {
+extern "C" __global__ void gather_col_string(int *keyPos, char *col, int newNum, int tupleNum, int keySize, char *result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -528,7 +517,7 @@ __global__ static void gather_col_string(int *keyPos, char *col, int newNum, int
 
 /* generate the final result*/
 
-__global__ static void gather_result(int *keyPos, char **col, int newNum, int tupleNum, int *size, int colNum,
+extern "C" __global__ void gather_result(int *keyPos, char **col, int newNum, int tupleNum, int *size, int colNum,
                                      char **result) {
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
