@@ -73,7 +73,11 @@ extern struct spinlock mqx_print_lock;
 #define mqx_print(lvl, fmt, arg...)                                                                                    \
   do {                                                                                                                 \
     if (lvl <= MQX_PRINT_LEVEL) {                                                                                      \
-      fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                                      \
+      if (lvl > WARN) {                                                                                                \
+        fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                                    \
+      } else {                                                                                                         \
+        fprintf(stderr, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                                    \
+      }                                                                                                                \
     }                                                                                                                  \
   } while (0)
 #endif

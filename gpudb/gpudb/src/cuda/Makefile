@@ -28,8 +28,10 @@ DATAPATH := /home/lyl/gpudb/gpudb/data
 GMMPATH := /home/lyl/gpudb/gpudb/gmm
 LDFLAGS += -L$(GMMPATH)
 CFLAGS := -I$(GMMPATH) -I../include
-SRC := tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu scanImpl.cu
-OBJ := tableScan.o  hashJoin.o  cuckoo.o  inviJoin.o  materialize.o  groupBy.o  orderBy.o  scanImpl.o
+SRC := tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu scanImpl_merged.cu
+SRC_PATCHED := tableScan.patched.cu hashJoin.patched.cu cuckoo.patched.cu inviJoin.patched.cu materialize.patched.cu groupBy.patched.cu orderBy.patched.cu scanImpl_merged.patched.cu
+OBJ := tableScan.o  hashJoin.o  cuckoo.o  inviJoin.o  materialize.o  groupBy.o  orderBy.o  scanImpl_merged.o
+OBJ_PATCHED := tableScan.patched.o  hashJoin.patched.o  cuckoo.patched.o  inviJoin.patched.o  materialize.patched.o  groupBy.patched.o  orderBy.patched.o  scanImpl_merged.patched.o
 
 all: gmmdb
 
@@ -37,13 +39,13 @@ modules: $(SRC) driver.cu
 	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -pg $(SRC) driver.cu $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
 
 gmmdb: gmm cpu
-	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+	 $(NVCC) -pg $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
 
 gpudb: gpu cpu
 	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
 
-gmm: $(SRC)
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC)
+gmm: $(SRC_PATCHED)
+	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC_PATCHED)
 
 cpu: driver.cu 
 	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) driver.cu

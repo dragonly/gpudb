@@ -57,9 +57,9 @@ int start(size_t mem_usable) {
     user_specified = 1;
   }
   if (verbose) {
-    mqx_print(INFO, "Total device memory  : %lu bytes", size_total);
-    mqx_print(INFO, "Free device memory   : %lu bytes", size_free);
-    mqx_print(INFO, "Usable device memory : %lu bytes%s", size_usable, user_specified ? " (user specified)" : "");
+    mqx_print(INFO, "Total device memory  : %.2f GB (%lu bytes)", size_total/1024/1024/1024.0, size_total);
+    mqx_print(INFO, "Free device memory   : %.2f GB (%lu bytes)", size_free/1024/1024/1024.0, size_free);
+    mqx_print(INFO, "Usable device memory : %.2f GB (%lu bytes%s)", size_usable/1024/1024/1024.0, size_usable, user_specified ? " (user specified)" : "");
     mqx_print(INFO, "Setting up MQX context ...");
   }
 

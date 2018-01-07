@@ -342,6 +342,13 @@ cudaError_t cudaLaunch(const void *entry) {
 volatile int advice_refs[MAX_ARGS];
 volatile int advice_accs[MAX_ARGS];
 volatile int nadvices = 0;
+volatile int func_index= -1;
+
+MQX_EXPORT
+cudaError_t cudaSetFunction(int index) {
+  func_index = index;
+  return cudaSuccess;
+}
 
 // MQX-specific: pass data reference and access advices.
 // %which_arg tells which argument (starting with 0) in the following

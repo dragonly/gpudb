@@ -1,6 +1,3 @@
-#ifndef SCAN_IMPL_CU
-#define SCAN_IMPL_CU
-
 #include "common.h"
 #include "gpuCudaLib.h"
 #include "scan.cu"
@@ -30,4 +27,3 @@ void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp) {
   //	deallocBlockSums();
 }
 
-#endif

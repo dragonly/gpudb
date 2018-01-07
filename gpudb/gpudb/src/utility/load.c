@@ -8,8 +8,8 @@
 #include <string.h>
 #include <getopt.h>
 #include <linux/limits.h>
-#include "../include/schema.h"
-#include "../include/common.h"
+#include "schema.h"
+#include "common.h"
 #define CHECK_POINTER(p) do {\
 	if(p == NULL){   \
 		perror("Failed to allocate host memory");    \

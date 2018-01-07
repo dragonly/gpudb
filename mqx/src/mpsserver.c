@@ -29,14 +29,57 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
-// #include <cuda_runtime_api.h>
+#include <cuda.h>
+#include "common.h"
 #include "protocol.h"
 #include "mps.h"
+#include "drvapi_error_string.h"
+#include "kernel_symbols.h"
+
+#define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)
+static inline void __checkCudaErrors( CUresult err, const char *file, const int line )
+{
+  if (CUDA_SUCCESS != err) {
+    mqx_print(FATAL, "CUDA Driver API error = %04d  \"%s\" from file <%s>, line %i.",
+            err, getCudaDrvErrorString(err), file, line );
+    exit(-1);
+  }
+}
 
 void sigint_handler(int signum) {
-  printf("closing server...\n");
+  mqx_print(DEBUG, "closing server...");
   unlink(SERVER_PATH);
   exit(0);
+}
+
+
+static CUcontext context;
+static CUmodule mod_ops;
+static CUfunction f_groupBy;
+const char *mod_file_name = "ops.cubin";
+
+void initCUDA() {
+  int device_count = 0;
+  CUdevice device;
+  checkCudaErrors(cuInit(0));
+  checkCudaErrors(cuDeviceGetCount(&device_count));
+  if (device_count == 0) {
+    mqx_print(FATAL, "no devices supporting CUDA");
+    exit(-1);
+  }
+  mqx_print(DEBUG, "device count: %d", device_count);
+  checkCudaErrors(cuDeviceGet(&device, 0));
+  char name[100];
+  checkCudaErrors(cuDeviceGetName(name, 100, device));
+  mqx_print(DEBUG, "Using device 0: %s", name);
+
+  checkCudaErrors(cuCtxCreate(&context, 0, device));
+  mqx_print(DEBUG, "CUDA context created");
+  
+  mqx_print(DEBUG, "testing load functions from cubin module");
+  checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
+  checkCudaErrors(cuModuleGetFunction(&f_groupBy, mod_ops, f_table[128]));
+  mqx_print(DEBUG, "module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, f_table[128], f_groupBy);
 }
 
 #ifdef STANDALONE
@@ -44,6 +87,10 @@ int main(int argc, char **argv) {
 #else
 void server_main() {
 #endif
+  initCUDA();
+  mqx_print(DEBUG, "early exit for debugging");
+  exit(0);
+
   int server_socket;
   struct sockaddr_un server;
   char buf[MAX_BUFFER_SIZE];
@@ -53,13 +100,13 @@ void server_main() {
 
   server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socket < 0) {
-    printf("opening server socket: %s\n", strerror(errno));
+    mqx_print(DEBUG, "opening server socket: %s", strerror(errno));
     exit(-1);
   }
   server.sun_family = AF_UNIX;
   strcpy(server.sun_path, SERVER_PATH);
   if (bind(server_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
-    printf("binding server socket: %s\n", strerror(errno));
+    mqx_print(DEBUG, "binding server socket: %s", strerror(errno));
     exit(-1);
   }
   listen(server_socket, 128);
@@ -68,17 +115,17 @@ void server_main() {
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
     if (client_socket == -1) {
-      printf("accept: %s\n", strerror(errno));
+      mqx_print(DEBUG, "accept: %s", strerror(errno));
     } else {
       do {
         memset(buf, 0, MAX_BUFFER_SIZE);
         rret = read(client_socket, buf, MAX_BUFFER_SIZE);
         if (rret < 0) {
-          printf("reading client socket: %s\n", strerror(errno));
+          mqx_print(DEBUG, "reading client socket: %s", strerror(errno));
         } else if (rret > 0) {
-          printf("-> %s", buf);
+          mqx_print(DEBUG, "-> %s", buf);
         } else {
-          printf("End of connection\n");
+          mqx_print(DEBUG, "End of connection");
         }
       } while (rret > 0);
     }

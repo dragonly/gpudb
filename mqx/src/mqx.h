@@ -36,6 +36,7 @@ extern "C" {
 // MQX extensions to CUDA runtime interfaces.
 cudaError_t cudaMallocEx(void **devPtr, size_t size, int flags);
 cudaError_t cudaAdvise(int which_arg, int advice);
+cudaError_t cudaSetFunction(int func_index);
 
 #ifdef __cplusplus
 }

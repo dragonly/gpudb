@@ -502,6 +502,7 @@ cudaError_t mqx_cudaMemGetInfo(size_t *size_free, size_t *size_total) {
 extern int advice_refs[MAX_ARGS];
 extern int advice_accs[MAX_ARGS];
 extern int nadvices;
+extern int func_index;
 
 // The arguments for the following kernel to be launched.
 // TODO: should prepare the following structures for each stream.
@@ -799,6 +800,7 @@ reload:
 finish:
   if (rgns)
     __libc_free(rgns);
+  func_index = -1;
   nadvices = 0;
   nargs = 0;
   ktop = (void *)kstack;
