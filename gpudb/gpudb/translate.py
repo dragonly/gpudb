@@ -21,6 +21,7 @@ import datetime
 import os
 import subprocess
 import sys
+import uuid
 
 sys.path.append("SQL2XML")
 import sql2xml
@@ -29,7 +30,7 @@ import code_gen
 
 CURRENT_DIR = os.getcwd()
 EXEC_DIR = 'bin'
-TEMP_DIR = '.tmp'
+TEMP_DIR = '.tmp-' + str(uuid.uuid4())
 
 def genXMLTree(queryFile, tmpFilePath):
     try:

@@ -1,42 +1,62 @@
 #!/usr/bin/python
 import os
+from multiprocessing import Pool, Process
+import uuid
+import shutil
 
+
+def gen_program(arg):
+    path, prog_name = arg
+    os.chdir(path + '/cuda')
+    os.system(make_command)
+    cmd = r'cp GPUDATABASE ' + rootpath + r'/corun/query_progs/' + prog_name
+    ret = os.system(cmd)
+    if ret != 0:
+        print('oops')
+        exit(1)
+    return ret
+
+TEMP_DIR = 'tmp-' + str(uuid.uuid4())
 os.chdir("../")
 rootpath = os.getcwd()
 
 LOAD_GMM = 1
 
 if LOAD_GMM:
-	ldpreload=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
-	make_command = 'make gmmdb'
+    ldpreload=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
+    make_command = 'make gmmdb'
 else:
-	ldpreload=''
-	make_command = 'make gpudb'
+    ldpreload=''
+    make_command = 'make gpudb'
 #elif LOAD_LIBICEPT:
 #	ldpreload=r'LD_PRELOAD='+rootpath+r'/lib-intercept/libicept.so '
 #	make_command = 'make gpudb'
 
 
 if not os.path.exists(rootpath+'/corun/query_progs/'):
-	os.mkdir(rootpath+'/corun/query_progs/')
+    os.mkdir(rootpath+'/corun/query_progs/')
 
 if not os.path.exists(rootpath+'/trace/'):
-	os.mkdir(rootpath+'/trace/')
+    os.mkdir(rootpath+'/trace/')
 if not os.path.exists(rootpath+'/trace/file/'):
-	os.mkdir(rootpath+'/trace/file/')
+    os.mkdir(rootpath+'/trace/file/')
 
-for file in os.listdir(rootpath+"/gpudb/test/ssb_test/"):
-	if file[-3:] == 'sql':
-		os.chdir(rootpath+"/gpudb/")
-		cmd = rootpath + r'/gpudb/translate.py' + r' ' + rootpath+'/gpudb/test/ssb_test/'+file + r' '+ rootpath+r'/gpudb/test/ssb_test/ssb.schema'
-		os.system(cmd)
-		os.chdir(rootpath+"/gpudb/src/cuda")
-		os.system(make_command)
-		cmd = r'cp GPUDATABASE ' + rootpath + r'/corun/query_progs/' + file[:-4]
-		ret = os.system(cmd)
-        if ret != 0:
-            print('oops')
-            exit(1)
-		#output = file[0:-3] + 'solo'
-		#cmd = ldpreload + rootpath + r'/gpudb/src/cuda/GPUDATABASE --datadir ' + rootpath+r'/gpudb/data' + r' > ' + rootpath+r'/trace/file/'+output
-		#os.system(cmd)
+sqlfiles = os.listdir(rootpath+"/gpudb/test/ssb_test/")
+sqlfiles = filter(lambda x: x[-3:] == 'sql', sqlfiles)
+ps = []
+tmpdirs = []
+for sqlfile in sqlfiles:
+    tmpdirs.append('tmp-' + str(uuid.uuid4()))
+for sqlfile, tmpdir in zip(sqlfiles, tmpdirs):
+    os.chdir(rootpath+"/gpudb/")
+    cmd = rootpath + r'/gpudb/translate.py' + r' ' + rootpath+'/gpudb/test/ssb_test/'+sqlfile + r' '+ rootpath+r'/gpudb/test/ssb_test/ssb.schema'
+    os.system(cmd)
+    shutil.copytree(rootpath + '/gpudb/src/cuda', tmpdir + '/cuda')
+    shutil.copytree(rootpath + '/gpudb/src/include', tmpdir + '/include')
+prog_names = map(lambda x: x[:-4], sqlfiles)
+pool = Pool(len(sqlfiles))
+pool.map(gen_program, zip(tmpdirs, prog_names))
+print('cleaning up')
+for tmpdir in tmpdirs:
+    shutil.rmtree(tmpdir)
+
