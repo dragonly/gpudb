@@ -52,10 +52,6 @@ void sigint_handler(int signum) {
   exit(0);
 }
 
-
-static CUcontext context;
-static CUmodule mod_ops;
-static CUfunction f_groupBy;
 const char *mod_file_name = "ops.cubin";
 
 void initCUDA() {
@@ -76,10 +72,13 @@ void initCUDA() {
   checkCudaErrors(cuCtxCreate(&context, 0, device));
   mqx_print(DEBUG, "CUDA context created");
   
-  mqx_print(DEBUG, "testing load functions from cubin module");
+  mqx_print(DEBUG, "loading functions from cubin module");
+
   checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
-  checkCudaErrors(cuModuleGetFunction(&f_groupBy, mod_ops, f_table[128]));
-  mqx_print(DEBUG, "module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, f_table[128], f_groupBy);
+  for (int i = 0; i < NUMFUNC; i++) {
+    checkCudaErrors(cuModuleGetFunction(&fsym_table[i], mod_ops, fname_table[i]));
+    mqx_print(DEBUG, "loaded module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, fname_table[i], fsym_table[i]);
+  }
 }
 
 #ifdef STANDALONE

@@ -1,7 +1,13 @@
 #ifndef __KERNEL_SYMBOLS_H_
 #define __KERNEL_SYMBOLS_H_
 
-const char* f_table[] = {
+static CUcontext context;
+static CUmodule mod_ops;
+
+#define NUMFUNC 138
+static CUfunction fsym_table[NUMFUNC] = { NULL };
+
+const static char* fname_table[] = {
   [0] = "agg_cal",
   [1] = "agg_cal_cons",
   [2] = "build_groupby_key",
