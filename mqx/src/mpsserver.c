@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <cuda.h>
+#include <pthread.h>
 #include "common.h"
 #include "protocol.h"
 #include "mps.h"
@@ -48,11 +49,13 @@ static inline void __checkCudaErrors( CUresult err, const char *file, const int 
 
 void sigint_handler(int signum) {
   mqx_print(DEBUG, "closing server...");
-  unlink(SERVER_PATH);
+  unlink(SERVER_SOCKET_FILE);
   exit(0);
 }
 
 const char *mod_file_name = "ops.cubin";
+static CUcontext context;
+static CUmodule mod_ops;
 
 void initCUDA() {
   int device_count = 0;
@@ -81,18 +84,19 @@ void initCUDA() {
   }
 }
 
+void *worker_thread(void *socket);
+
 #ifdef STANDALONE
 int main(int argc, char **argv) {
 #else
 void server_main() {
 #endif
   initCUDA();
-  mqx_print(DEBUG, "early exit for debugging");
-  exit(0);
+  //mqx_print(DEBUG, "early exit for debugging");
+  //exit(0);
 
   int server_socket;
   struct sockaddr_un server;
-  char buf[MAX_BUFFER_SIZE];
 
   signal(SIGINT, sigint_handler);
   signal(SIGKILL, sigint_handler);
@@ -103,32 +107,49 @@ void server_main() {
     exit(-1);
   }
   server.sun_family = AF_UNIX;
-  strcpy(server.sun_path, SERVER_PATH);
+  strcpy(server.sun_path, SERVER_SOCKET_FILE);
   if (bind(server_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
     mqx_print(DEBUG, "binding server socket: %s", strerror(errno));
     exit(-1);
   }
   listen(server_socket, 128);
 
-  int client_socket, rret;
+  int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
     if (client_socket == -1) {
-      mqx_print(DEBUG, "accept: %s", strerror(errno));
-    } else {
-      do {
-        memset(buf, 0, MAX_BUFFER_SIZE);
-        rret = read(client_socket, buf, MAX_BUFFER_SIZE);
-        if (rret < 0) {
-          mqx_print(DEBUG, "reading client socket: %s", strerror(errno));
-        } else if (rret > 0) {
-          mqx_print(DEBUG, "-> %s", buf);
-        } else {
-          mqx_print(DEBUG, "End of connection");
-        }
-      } while (rret > 0);
+      mqx_print(ERROR, "accept: %s", strerror(errno));
+      continue;
+    }
+    mqx_print(INFO, "starting up worker thread to serve new connection");
+    new_socket = malloc(sizeof(int));
+    *new_socket = client_socket;
+    pthread_t thread;
+    if(pthread_create(&thread, NULL, worker_thread, (void *)new_socket)) {
+      mqx_print(ERROR, "pthread_create: %s", strerror(errno));
+      continue;
     }
   }
   close(server_socket);
-  unlink(SERVER_PATH);
+  unlink(SERVER_SOCKET_FILE);
+}
+
+void *worker_thread(void *client_socket) {
+  int rret;
+  int nbuf = 0;
+  int socket = *(int *)client_socket;
+  char buf[MAX_BUFFER_SIZE];
+  memset(buf, 0, MAX_BUFFER_SIZE);
+  do {
+    rret = read(socket, buf, MAX_BUFFER_SIZE);
+    if (rret < 0) {
+      mqx_print(ERROR, "reading client socket: %s", strerror(errno));
+    } else if (rret > 0) {
+      nbuf += rret;
+      mqx_print(DEBUG, "-> %s", buf);
+    } else {
+      mqx_print(DEBUG, "End of connection");
+    }
+  } while (rret > 0);
+  
 }

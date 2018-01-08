@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
     exit(-1);
   }
   server.sun_family = AF_UNIX;
-  strcpy(server.sun_path, SERVER_PATH);
+  strcpy(server.sun_path, SERVER_SOCKET_FILE);
   if (connect(client_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
     close(client_socket);
     perror("conencting server socket");
@@ -51,6 +51,11 @@ int main(int argc, char **argv) {
   char data[10];
   data[0] = 97; data[1] = 10; data[2] = 0;
   if (write(client_socket, data, strlen(data)) < 0) {
+    perror("writing to client socket");
+  }
+  sleep(1);
+  char *bye = "BYE";
+  if (write(client_socket, bye, strlen(bye)) < 0) {
     perror("writing to client socket");
   }
   close(client_socket);
