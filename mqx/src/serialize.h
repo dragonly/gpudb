@@ -20,41 +20,7 @@
  * THE SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <errno.h>
-#include "mps.h"
-#include "serialize.h"
-
-int main(int argc, char **argv) {
-  int client_socket;
-  struct sockaddr_un server;
-
-  client_socket = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (client_socket < 0) {
-    printf("opening client socket: %s\n", strerror(errno));
-    exit(-1);
-  }
-  server.sun_family = AF_UNIX;
-  strcpy(server.sun_path, SERVER_SOCKET_FILE);
-  if (connect(client_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
-    close(client_socket);
-    perror("conencting server socket");
-    exit(-1);
-  }
-  char *bye = "HELLO";
-  int len = strlen(bye);
-  if (send(client_socket, &len, 1, 0) == -1) {
-    perror("writing to client socket");
-  }
-  sleep(1);
-  if (send(client_socket, bye, len, 0) == -1) {
-    perror("writing to client socket");
-  }
-  close(client_socket);
-}
+unsigned char* serialize_int(unsigned char *buffer, int value);
+unsigned char* serialize_str(unsigned char *buffer, char *str, int len);
+unsigned char* deserialize_int(unsigned char *buffer, int *value);
+unsigned char* deserialize_str(unsigned char *buffer, char *str, int len);

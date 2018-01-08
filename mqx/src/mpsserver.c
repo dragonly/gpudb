@@ -36,6 +36,7 @@
 #include "mps.h"
 #include "drvapi_error_string.h"
 #include "kernel_symbols.h"
+#include "serialize.h"
 
 #define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)
 static inline void __checkCudaErrors( CUresult err, const char *file, const int line )
@@ -80,11 +81,16 @@ void initCUDA() {
   checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
   for (int i = 0; i < NUMFUNC; i++) {
     checkCudaErrors(cuModuleGetFunction(&fsym_table[i], mod_ops, fname_table[i]));
-    mqx_print(DEBUG, "loaded module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, fname_table[i], fsym_table[i]);
+    //mqx_print(DEBUG, "loaded module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, fname_table[i], fsym_table[i]);
   }
 }
 
 void *worker_thread(void *socket);
+
+pthread_mutex_t stats_lock;
+static struct {
+  int num_threads;
+} server_stats;
 
 #ifdef STANDALONE
 int main(int argc, char **argv) {
@@ -95,6 +101,7 @@ void server_main() {
   //mqx_print(DEBUG, "early exit for debugging");
   //exit(0);
 
+  server_stats.num_threads = 0;
   int server_socket;
   struct sockaddr_un server;
 
@@ -114,6 +121,7 @@ void server_main() {
   }
   listen(server_socket, 128);
 
+  pthread_mutex_init(&stats_lock, NULL);
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
@@ -130,26 +138,43 @@ void server_main() {
       continue;
     }
   }
+  pthread_mutex_destroy(&stats_lock);
   close(server_socket);
   unlink(SERVER_SOCKET_FILE);
 }
 
 void *worker_thread(void *client_socket) {
+  pthread_mutex_lock(&stats_lock);
+  server_stats.num_threads += 1;
+  pthread_mutex_unlock(&stats_lock);
+  mqx_print(DEBUG, "worker thread created (%d total)", server_stats.num_threads);
   int rret;
   int nbuf = 0;
   int socket = *(int *)client_socket;
   char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
+  int len;
+  rret = recv(socket, &len, 1, 0);
+  if (len > MAX_BUFFER_SIZE) {
+    mqx_print(FATAL, "message size too long: %d", len);
+    exit(-1);
+  }
+  mqx_print(DEBUG, "length of message: %d", len);
   do {
-    rret = read(socket, buf, MAX_BUFFER_SIZE);
+    rret = read(socket, buf, len);
     if (rret < 0) {
       mqx_print(ERROR, "reading client socket: %s", strerror(errno));
     } else if (rret > 0) {
       nbuf += rret;
+      len -= rret;
       mqx_print(DEBUG, "-> %s", buf);
     } else {
       mqx_print(DEBUG, "End of connection");
     }
   } while (rret > 0);
-  
+  pthread_mutex_lock(&stats_lock);
+  server_stats.num_threads -= 1;
+  pthread_mutex_unlock(&stats_lock);
+  mqx_print(DEBUG, "living threads: %d", server_stats.num_threads);
+  return NULL;
 }

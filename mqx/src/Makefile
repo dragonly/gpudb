@@ -41,11 +41,14 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
-mpsserver : mpsserver.o common.o
+mpsserver : mpsserver.o common.o serialize.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c common.c drvapi_error_string.h
 	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+
+mpsclient : mpsclient.o serialize.o
+	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
 mqxctl : mqxctl.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@
