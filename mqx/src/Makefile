@@ -45,10 +45,13 @@ mpsserver : mpsserver.o common.o serialize.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c common.c drvapi_error_string.h
-	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-mpsclient : mpsclient.o serialize.o
+mpsclient : mpsclient.o serialize.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
+
+mpsclient.o: mpsclient.c
+	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5
 
 mqxctl : mqxctl.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@

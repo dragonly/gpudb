@@ -149,29 +149,46 @@ void *worker_thread(void *client_socket) {
   pthread_mutex_unlock(&stats_lock);
   mqx_print(DEBUG, "worker thread created (%d total)", server_stats.num_threads);
   int rret;
-  int nbuf = 0;
   int socket = *(int *)client_socket;
-  char buf[MAX_BUFFER_SIZE];
+  unsigned char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
-  int len;
-  rret = recv(socket, &len, 1, 0);
-  if (len > MAX_BUFFER_SIZE) {
-    mqx_print(FATAL, "message size too long: %d", len);
-    exit(-1);
-  }
-  mqx_print(DEBUG, "length of message: %d", len);
+  int msg_info[2];
+  rret = recv(socket, &msg_info, 2 * sizeof(int), 0);
+  int type, len;
+  type = msg_info[0];
+  len = msg_info[1];
+  unsigned char *pbuf = buf;
   do {
-    rret = read(socket, buf, len);
+    rret = read(socket, pbuf, len);
     if (rret < 0) {
       mqx_print(ERROR, "reading client socket: %s", strerror(errno));
     } else if (rret > 0) {
-      nbuf += rret;
+      pbuf += rret;
       len -= rret;
       mqx_print(DEBUG, "-> %s", buf);
     } else {
       mqx_print(DEBUG, "End of connection");
     }
-  } while (rret > 0);
+  } while (len > 0);
+  switch (type) {
+    case REQ_GPU_LAUNCH_KERNEL:;
+      struct kernel_args kargs;
+      deserialize_kernel_args(buf, &kargs);
+      mqx_print(DEBUG, "got kernel args");
+      uint64_t nargs = (uint64_t)kargs.arg_info[0];
+      printf("arg_info: ");
+      for (int i = 0; i < nargs; i++) {
+        printf("%ld ", (uint64_t)kargs.arg_info[i]);
+      }
+      printf("\n");
+      mqx_print(DEBUG, "args: %s", kargs.args);
+      break;
+    default:
+      mqx_print(FATAL, "no such type: %d", type);
+      goto finish;
+  }
+
+finish:
   pthread_mutex_lock(&stats_lock);
   server_stats.num_threads -= 1;
   pthread_mutex_unlock(&stats_lock);

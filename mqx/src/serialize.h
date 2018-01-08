@@ -19,8 +19,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifndef __SERIALIZE_H_
+#define __SERIALIZE_H_
+#include <stdint.h>
+#include "mps.h"
 
-unsigned char* serialize_int(unsigned char *buffer, int value);
-unsigned char* serialize_str(unsigned char *buffer, char *str, int len);
-unsigned char* deserialize_int(unsigned char *buffer, int *value);
-unsigned char* deserialize_str(unsigned char *buffer, char *str, int len);
+unsigned char* serialize_uint32(unsigned char*, const uint32_t);
+unsigned char* deserialize_uint32(unsigned char* const, uint32_t*);
+unsigned char* serialize_uint64(unsigned char*, const uint64_t);
+unsigned char* deserialize_uint64(unsigned char* const, uint64_t*);
+unsigned char* serialize_str(unsigned char*, const char* const, int);
+unsigned char* deserialize_str(unsigned char* const, char*, int);
+unsigned char* serialize_kernel_args(unsigned char*, const struct kernel_args);
+unsigned char* deserialize_kernel_args(unsigned char* const, struct kernel_args*);
+int kernel_args_bytes(const struct kernel_args);
+#endif
+

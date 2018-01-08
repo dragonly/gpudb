@@ -19,6 +19,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifndef __MPS_H_
+#define __MPS_H_
 
 #define SERVER_SOCKET_FILE "mqx_mps_server"
 #define MAX_BUFFER_SIZE 102400
@@ -29,13 +31,20 @@
 #define REQ_GPU_MEMCPY_HTOD_ASYNC   3
 #define REQ_GPU_MEMCPY_DTOH_SYNC    4
 #define REQ_GPU_MEMCPY_DTOH_ASYNC   5
-#define REQ_GPU_LAUNCH_STREAM_ASYNC 6
-#define REQ_GPU_LAUNCH_ALL_STREAM   7
+#define REQ_GPU_LAUNCH_KERNEL       6
 #define REQ_GPU_SYNC                8
 #define REQ_GPU_MEMFREE             9
 #define REQ_GPU_MEMSET              10
 
+#define MAX_ARG_SIZE  128
+#define MAX_ARG_NUM   16
+
+struct kernel_args {
+  void *arg_info[MAX_ARG_NUM + 1];
+  char args[MAX_ARG_SIZE];
+};
 struct mps_req {
   volatile int type;
-  volatile int clent_id;
 };
+#endif
+

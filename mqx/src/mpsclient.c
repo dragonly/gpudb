@@ -47,14 +47,26 @@ int main(int argc, char **argv) {
     perror("conencting server socket");
     exit(-1);
   }
-  char *bye = "HELLO";
-  int len = strlen(bye);
-  if (send(client_socket, &len, 1, 0) == -1) {
+  int msg_info[2];
+  msg_info[0] = REQ_GPU_LAUNCH_KERNEL;
+  struct kernel_args kargs;
+  kargs.arg_info[0] = (void *)2;
+  kargs.arg_info[1] = (void *)4;
+  kargs.arg_info[2] = (void *)8;
+  for (int i = 0; i < 12; i++) {
+    kargs.args[i] = 'a' + i;
+  }
+  int nbytes = kernel_args_bytes(kargs);
+  msg_info[1] = nbytes;
+  if (send(client_socket, &msg_info, 2 * sizeof(int), 0) == -1) {
     perror("writing to client socket");
   }
   sleep(1);
-  if (send(client_socket, bye, len, 0) == -1) {
+  unsigned char *buf = (unsigned char *)malloc(nbytes);
+  serialize_kernel_args(buf, kargs);
+  if (send(client_socket, buf, nbytes, 0) == -1) {
     perror("writing to client socket");
   }
+  free(buf);
   close(client_socket);
 }
