@@ -62,7 +62,6 @@ int main(int argc, char **argv) {
   kargs.threads_per_block = 32;
   kargs.function_index = 233;
   int nbytes = kernel_args_bytes(kargs);
-  printf("kargs nbytes = %d\n", nbytes);
   req.len = nbytes;
   unsigned char *buf = (unsigned char *)malloc(nbytes);
   serialize_mps_req(buf, req);
@@ -80,6 +79,10 @@ int main(int argc, char **argv) {
   if (res.type == RES_OK) {
     printf("kernel launch success\n");
   }
+  req.type = REQ_QUIT;
+  req.len = 0;
+  serialize_mps_req(buf, req);
+  send(client_socket, buf, 4, 0);
   free(buf);
   close(client_socket);
 }

@@ -60,6 +60,7 @@ struct kernel_args {
 #define REQ_GPU_SYNC                7
 #define REQ_GPU_MEMFREE             8
 #define REQ_GPU_MEMSET              9
+#define REQ_QUIT                    10
 struct mps_req {
   uint16_t type;
   uint16_t len;

@@ -85,7 +85,7 @@ void initCUDA() {
   checkCudaErrors(cuModuleLoad(&test_mod_ops, "simpleAssert.cubin"));
   checkCudaErrors(cuModuleGetFunction(&F_simpleAssert, test_mod_ops, "testKernel"));
 
-  // load the real SHIT
+  // load the real shit
   checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
   for (int i = 0; i < NUMFUNC; i++) {
     checkCudaErrors(cuModuleGetFunction(&fsym_table[i], mod_ops, fname_table[i]));
@@ -188,11 +188,17 @@ void *worker_thread(void *client_socket) {
   uint64_t nargs, offset; 
 
   while (1) {
+    // read request header
     rret = recv(socket, buf, 4 /*sizeof serialized struct mps_req*/, 0);
     deserialize_mps_req(buf, &req);
+    if (req.type == REQ_QUIT) {
+      mqx_print(DEBUG, "client quit");
+      goto finish;
+    }
     memset(buf, 0, 4);
     len = req.len;
     pbuf = buf;
+    // read the real shit
     do {
       rret = recv(socket, pbuf, len, 0);
       if (rret < 0) {
@@ -200,9 +206,7 @@ void *worker_thread(void *client_socket) {
       } else if (rret > 0) {
         pbuf += rret;
         len -= rret;
-      } else {
-        mqx_print(DEBUG, "End of connection");
-      }
+      };
     } while (len > 0);
     switch (req.type) {
       case REQ_GPU_LAUNCH_KERNEL:;
