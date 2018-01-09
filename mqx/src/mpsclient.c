@@ -47,22 +47,25 @@ int main(int argc, char **argv) {
     perror("conencting server socket");
     exit(-1);
   }
-  int msg_info[2];
-  msg_info[0] = REQ_GPU_LAUNCH_KERNEL;
+  struct mps_req req;
+  req.type = REQ_GPU_LAUNCH_KERNEL;
   struct kernel_args kargs;
-  kargs.arg_info[0] = (void *)2;
-  kargs.arg_info[1] = (void *)4;
-  kargs.arg_info[2] = (void *)8;
-  for (int i = 0; i < 12; i++) {
-    kargs.args[i] = 'a' + i;
-  }
+  kargs.arg_info[0] = (void *)1;
+  kargs.arg_info[1] = (void *)0;
+  *(uint32_t *)kargs.args = 60;
+  kargs.last_arg_len = 4;
+  kargs.blocks_per_grid = 2;
+  kargs.threads_per_block = 32;
+  kargs.function_index = 233;
   int nbytes = kernel_args_bytes(kargs);
-  msg_info[1] = nbytes;
-  if (send(client_socket, &msg_info, 2 * sizeof(int), 0) == -1) {
+  printf("kargs nbytes = %d\n", nbytes);
+  req.len = nbytes;
+  unsigned char *buf = (unsigned char *)malloc(nbytes);
+  serialize_mps_req(buf, req);
+  if (send(client_socket, buf, 4, 0) == -1) {
     perror("writing to client socket");
   }
   sleep(1);
-  unsigned char *buf = (unsigned char *)malloc(nbytes);
   serialize_kernel_args(buf, kargs);
   if (send(client_socket, buf, nbytes, 0) == -1) {
     perror("writing to client socket");

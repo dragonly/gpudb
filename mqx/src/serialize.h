@@ -24,6 +24,8 @@
 #include <stdint.h>
 #include "mps.h"
 
+unsigned char* serialize_uint16(unsigned char*, const uint16_t);
+unsigned char* deserialize_uint16(unsigned char*, uint16_t*);
 unsigned char* serialize_uint32(unsigned char*, const uint32_t);
 unsigned char* deserialize_uint32(unsigned char* const, uint32_t*);
 unsigned char* serialize_uint64(unsigned char*, const uint64_t);
@@ -33,5 +35,7 @@ unsigned char* deserialize_str(unsigned char* const, char*, int);
 unsigned char* serialize_kernel_args(unsigned char*, const struct kernel_args);
 unsigned char* deserialize_kernel_args(unsigned char* const, struct kernel_args*);
 int kernel_args_bytes(const struct kernel_args);
+unsigned char* serialize_mps_req(unsigned char*, const struct mps_req);
+unsigned char* deserialize_mps_req(unsigned char* const, struct mps_req*);
 #endif
 

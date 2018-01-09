@@ -21,30 +21,37 @@
  */
 #ifndef __MPS_H_
 #define __MPS_H_
+#include <stdint.h>
 
 #define SERVER_SOCKET_FILE "mqx_mps_server"
-#define MAX_BUFFER_SIZE 102400
+#define MAX_BUFFER_SIZE 8192
 
 #define REQ_HOST_MALLOC             0
-#define REQ_GPU_MALLOC              1
-#define REQ_GPU_MEMCPY_HTOD_SYNC    2
-#define REQ_GPU_MEMCPY_HTOD_ASYNC   3
-#define REQ_GPU_MEMCPY_DTOH_SYNC    4
-#define REQ_GPU_MEMCPY_DTOH_ASYNC   5
-#define REQ_GPU_LAUNCH_KERNEL       6
-#define REQ_GPU_SYNC                8
-#define REQ_GPU_MEMFREE             9
-#define REQ_GPU_MEMSET              10
+#define REQ_GPU_LAUNCH_KERNEL       1
+#define REQ_GPU_MALLOC              2
+#define REQ_GPU_MEMCPY_HTOD_SYNC    3
+#define REQ_GPU_MEMCPY_HTOD_ASYNC   4
+#define REQ_GPU_MEMCPY_DTOH_SYNC    5
+#define REQ_GPU_MEMCPY_DTOH_ASYNC   6
+#define REQ_GPU_SYNC                7
+#define REQ_GPU_MEMFREE             8
+#define REQ_GPU_MEMSET              9
 
-#define MAX_ARG_SIZE  128
+#define MAX_ARG_SIZE  4096
 #define MAX_ARG_NUM   16
 
 struct kernel_args {
   void *arg_info[MAX_ARG_NUM + 1];
+  uint16_t last_arg_len;
   char args[MAX_ARG_SIZE];
+  uint16_t blocks_per_grid;
+  uint16_t threads_per_block;
+  uint16_t function_index;
 };
 struct mps_req {
-  volatile int type;
+  uint16_t type;
+  uint16_t len;
 };
+
 #endif
 

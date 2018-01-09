@@ -55,8 +55,11 @@ void sigint_handler(int signum) {
 }
 
 const char *mod_file_name = "ops.cubin";
-static CUcontext context;
+static CUcontext cudaContext;
 static CUmodule mod_ops;
+
+static CUmodule test_mod_ops;
+static CUfunction F_simpleAssert;
 
 void initCUDA() {
   int device_count = 0;
@@ -73,16 +76,22 @@ void initCUDA() {
   checkCudaErrors(cuDeviceGetName(name, 100, device));
   mqx_print(DEBUG, "Using device 0: %s", name);
 
-  checkCudaErrors(cuCtxCreate(&context, 0, device));
+  checkCudaErrors(cuCtxCreate(&cudaContext, 0, device));
   mqx_print(DEBUG, "CUDA context created");
   
   mqx_print(DEBUG, "loading functions from cubin module");
 
+  // load test module: simpleAssert.cubin
+  checkCudaErrors(cuModuleLoad(&test_mod_ops, "simpleAssert.cubin"));
+  checkCudaErrors(cuModuleGetFunction(&F_simpleAssert, test_mod_ops, "testKernel"));
+
+  // load the real SHIT
   checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
   for (int i = 0; i < NUMFUNC; i++) {
     checkCudaErrors(cuModuleGetFunction(&fsym_table[i], mod_ops, fname_table[i]));
     //mqx_print(DEBUG, "loaded module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, fname_table[i], fsym_table[i]);
   }
+  mqx_print(DEBUG, "CUDA module and functions loaded");
 }
 
 void *worker_thread(void *socket);
@@ -141,36 +150,39 @@ void server_main() {
   pthread_mutex_destroy(&stats_lock);
   close(server_socket);
   unlink(SERVER_SOCKET_FILE);
+  checkCudaErrors(cuCtxDestroy(cudaContext));
 }
 
 void *worker_thread(void *client_socket) {
   pthread_mutex_lock(&stats_lock);
   server_stats.num_threads += 1;
   pthread_mutex_unlock(&stats_lock);
-  mqx_print(DEBUG, "worker thread created (%d total)", server_stats.num_threads);
+  checkCudaErrors(cuCtxSetCurrent(cudaContext));
+  mqx_print(DEBUG, "cuda context worker thread created (%d total)", server_stats.num_threads);
+  
   int rret;
   int socket = *(int *)client_socket;
   unsigned char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
-  int msg_info[2];
-  rret = recv(socket, &msg_info, 2 * sizeof(int), 0);
-  int type, len;
-  type = msg_info[0];
-  len = msg_info[1];
+
+  struct mps_req req;
+  rret = recv(socket, buf, 4, 0);
+  deserialize_mps_req(buf, &req);
+  memset(buf, 0, 4);
+  uint16_t len = req.len;
   unsigned char *pbuf = buf;
   do {
-    rret = read(socket, pbuf, len);
+    rret = recv(socket, pbuf, len, 0);
     if (rret < 0) {
       mqx_print(ERROR, "reading client socket: %s", strerror(errno));
     } else if (rret > 0) {
       pbuf += rret;
       len -= rret;
-      mqx_print(DEBUG, "-> %s", buf);
     } else {
       mqx_print(DEBUG, "End of connection");
     }
   } while (len > 0);
-  switch (type) {
+  switch (req.type) {
     case REQ_GPU_LAUNCH_KERNEL:;
       struct kernel_args kargs;
       deserialize_kernel_args(buf, &kargs);
@@ -181,10 +193,26 @@ void *worker_thread(void *client_socket) {
         printf("%ld ", (uint64_t)kargs.arg_info[i]);
       }
       printf("\n");
-      mqx_print(DEBUG, "args: %s", kargs.args);
+      mqx_print(DEBUG, "args: %s(%zu)", kargs.args, strlen(kargs.args));
+      mqx_print(DEBUG, "threads per block: %d", kargs.threads_per_block);
+      mqx_print(DEBUG, "blocks per grid: %d", kargs.blocks_per_grid);
+      mqx_print(DEBUG, "function index: %d", kargs.function_index);
+      if (kargs.function_index == 233) {
+        uint64_t offset;
+        for (int i = 0; i < nargs; i++) {
+          offset = (uint64_t)kargs.arg_info[i+1];
+          mqx_print(DEBUG, "set up arg %d, offset: %zu", i, offset);
+          kargs.arg_info[i+1] = (void *)((uint8_t *)kargs.args + offset);
+        }
+        checkCudaErrors(cuLaunchKernel(F_simpleAssert,
+              kargs.blocks_per_grid, 1, 1,
+              kargs.threads_per_block, 1, 1,
+              0, 0, (void **)&(kargs.arg_info[1]), 0));
+        checkCudaErrors(cuCtxSynchronize());
+      }
       break;
     default:
-      mqx_print(FATAL, "no such type: %d", type);
+      mqx_print(FATAL, "no such type: %d", req.type);
       goto finish;
   }
 
@@ -192,6 +220,7 @@ finish:
   pthread_mutex_lock(&stats_lock);
   server_stats.num_threads -= 1;
   pthread_mutex_unlock(&stats_lock);
+  checkCudaErrors(cuCtxPopCurrent(&cudaContext));
   mqx_print(DEBUG, "living threads: %d", server_stats.num_threads);
   return NULL;
 }
