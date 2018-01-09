@@ -113,3 +113,9 @@ unsigned char* deserialize_mps_req(unsigned char* const buffer, struct mps_req *
   pbuf = deserialize_uint16(pbuf, &req->len);
   return pbuf;
 }
+unsigned char* serialize_mps_res(unsigned char* buffer, const struct mps_res res) {
+  return serialize_uint16(buffer, res.type);
+}
+unsigned char* deserialize_mps_res(unsigned char* const buffer, struct mps_res *res) {
+  return deserialize_uint16(buffer, &res->type);
+}

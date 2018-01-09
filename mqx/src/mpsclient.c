@@ -50,10 +50,14 @@ int main(int argc, char **argv) {
   struct mps_req req;
   req.type = REQ_GPU_LAUNCH_KERNEL;
   struct kernel_args kargs;
-  kargs.arg_info[0] = (void *)1;
+  kargs.arg_info[0] = (void *)3;
   kargs.arg_info[1] = (void *)0;
-  *(uint32_t *)kargs.args = 60;
-  kargs.last_arg_len = 4;
+  kargs.arg_info[2] = (void *)2;
+  kargs.arg_info[3] = (void *)10;
+  *(uint16_t *)kargs.args = 59;
+  *(uint64_t *)((uint8_t *)kargs.args+2) = 6;
+  *(uint16_t *)((uint8_t *)kargs.args+10) = 7;
+  kargs.last_arg_len = 2;
   kargs.blocks_per_grid = 2;
   kargs.threads_per_block = 32;
   kargs.function_index = 233;
@@ -69,6 +73,12 @@ int main(int argc, char **argv) {
   serialize_kernel_args(buf, kargs);
   if (send(client_socket, buf, nbytes, 0) == -1) {
     perror("writing to client socket");
+  }
+  recv(client_socket, buf, 2, 0);
+  struct mps_res res;
+  deserialize_mps_res(buf, &res);
+  if (res.type == RES_OK) {
+    printf("kernel launch success\n");
   }
   free(buf);
   close(client_socket);

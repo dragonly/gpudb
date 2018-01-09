@@ -41,13 +41,13 @@ bool testResult = true;
 //! Tests assert function.
 //! Thread whose id > N will print assertion failed error message.
 ////////////////////////////////////////////////////////////////////////////////
-extern "C" __global__ void testKernel(int N)
+extern "C" __global__ void testKernel(uint16_t N, uint64_t N1, uint16_t N2)
 {
     int gtid = blockIdx.x*blockDim.x + threadIdx.x ;
     //printf("blockIdx.x = %d, blockDim.x = %d, threadIdx.x = %d, N = %d\n", blockIdx.x, blockDim.x, threadIdx.x, N);
     //assert(gtid < N) ;
     if (gtid >= N) {
-        printf("blockIdx.x = %d, blockDim.x = %d, threadIdx.x = %d, assert gtid = %d < N = %d failed\n", blockIdx.x, blockDim.x, threadIdx.x, gtid, N);
+        printf("blockIdx.x = %d, blockDim.x = %d, threadIdx.x = %d, assert gtid = %d < N = %d failed %zu %d\n", blockIdx.x, blockDim.x, threadIdx.x, gtid, N, N1, N2);
     }
 }
 

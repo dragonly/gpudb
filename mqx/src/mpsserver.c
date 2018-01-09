@@ -97,9 +97,7 @@ void initCUDA() {
 void *worker_thread(void *socket);
 
 pthread_mutex_t stats_lock;
-static struct {
-  int num_threads;
-} server_stats;
+struct server_stats server_stats;
 
 #ifdef STANDALONE
 int main(int argc, char **argv) {
@@ -110,7 +108,8 @@ void server_main() {
   //mqx_print(DEBUG, "early exit for debugging");
   //exit(0);
 
-  server_stats.num_threads = 0;
+  server_stats.clients_bitmap = 0;
+  server_stats.nclients = 0;
   int server_socket;
   struct sockaddr_un server;
 
@@ -138,6 +137,11 @@ void server_main() {
       mqx_print(ERROR, "accept: %s", strerror(errno));
       continue;
     }
+    if (server_stats.nclients >= MAX_CLIENTS) {
+      mqx_print(ERROR, "max clients served (%d), connection rejected", MAX_CLIENTS);
+      close(client_socket);
+      continue;
+    }
     mqx_print(INFO, "starting up worker thread to serve new connection");
     new_socket = malloc(sizeof(int));
     *new_socket = client_socket;
@@ -154,73 +158,96 @@ void server_main() {
 }
 
 void *worker_thread(void *client_socket) {
-  pthread_mutex_lock(&stats_lock);
-  server_stats.num_threads += 1;
-  pthread_mutex_unlock(&stats_lock);
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
-  mqx_print(DEBUG, "cuda context worker thread created (%d total)", server_stats.num_threads);
+
+  pthread_mutex_lock(&stats_lock);
+  server_stats.nclients += 1;
+  int client_id = -1;
+  for (int i = 0; i < server_stats.nclients; i++) {
+    if ((server_stats.clients_bitmap & (1 << i)) == 0) {
+      client_id = i;
+      server_stats.clients_bitmap |= (1 << i);
+      break;
+    }
+  }
+  struct mps_client *cl = &server_stats.clients[client_id];
+  cl->id = client_id;
+  checkCudaErrors(cuStreamCreate(&cl->stream, CU_STREAM_DEFAULT));
+  pthread_mutex_unlock(&stats_lock);
+  mqx_print(DEBUG, "worker thread created (%d/%d)", client_id, server_stats.nclients);
   
   int rret;
   int socket = *(int *)client_socket;
   unsigned char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
-
   struct mps_req req;
-  rret = recv(socket, buf, 4, 0);
-  deserialize_mps_req(buf, &req);
-  memset(buf, 0, 4);
-  uint16_t len = req.len;
-  unsigned char *pbuf = buf;
-  do {
-    rret = recv(socket, pbuf, len, 0);
-    if (rret < 0) {
-      mqx_print(ERROR, "reading client socket: %s", strerror(errno));
-    } else if (rret > 0) {
-      pbuf += rret;
-      len -= rret;
-    } else {
-      mqx_print(DEBUG, "End of connection");
-    }
-  } while (len > 0);
-  switch (req.type) {
-    case REQ_GPU_LAUNCH_KERNEL:;
-      struct kernel_args kargs;
-      deserialize_kernel_args(buf, &kargs);
-      mqx_print(DEBUG, "got kernel args");
-      uint64_t nargs = (uint64_t)kargs.arg_info[0];
-      printf("arg_info: ");
-      for (int i = 0; i < nargs; i++) {
-        printf("%ld ", (uint64_t)kargs.arg_info[i]);
+  struct mps_res res;
+  uint16_t len;
+  unsigned char *pbuf;
+  struct kernel_args kargs;
+  uint64_t nargs, offset; 
+
+  while (1) {
+    rret = recv(socket, buf, 4 /*sizeof serialized struct mps_req*/, 0);
+    deserialize_mps_req(buf, &req);
+    memset(buf, 0, 4);
+    len = req.len;
+    pbuf = buf;
+    do {
+      rret = recv(socket, pbuf, len, 0);
+      if (rret < 0) {
+        mqx_print(ERROR, "reading client socket: %s", strerror(errno));
+      } else if (rret > 0) {
+        pbuf += rret;
+        len -= rret;
+      } else {
+        mqx_print(DEBUG, "End of connection");
       }
-      printf("\n");
-      mqx_print(DEBUG, "args: %s(%zu)", kargs.args, strlen(kargs.args));
-      mqx_print(DEBUG, "threads per block: %d", kargs.threads_per_block);
-      mqx_print(DEBUG, "blocks per grid: %d", kargs.blocks_per_grid);
-      mqx_print(DEBUG, "function index: %d", kargs.function_index);
-      if (kargs.function_index == 233) {
-        uint64_t offset;
+    } while (len > 0);
+    switch (req.type) {
+      case REQ_GPU_LAUNCH_KERNEL:;
+        deserialize_kernel_args(buf, &kargs);
+        nargs = (uint64_t)kargs.arg_info[0];
+
         for (int i = 0; i < nargs; i++) {
           offset = (uint64_t)kargs.arg_info[i+1];
-          mqx_print(DEBUG, "set up arg %d, offset: %zu", i, offset);
           kargs.arg_info[i+1] = (void *)((uint8_t *)kargs.args + offset);
         }
-        checkCudaErrors(cuLaunchKernel(F_simpleAssert,
-              kargs.blocks_per_grid, 1, 1,
-              kargs.threads_per_block, 1, 1,
-              0, 0, (void **)&(kargs.arg_info[1]), 0));
-        checkCudaErrors(cuCtxSynchronize());
-      }
-      break;
-    default:
-      mqx_print(FATAL, "no such type: %d", req.type);
-      goto finish;
+        // test kernel
+        if (kargs.function_index == 233) {
+          mqx_print(DEBUG, "F_%d<<<%d, %d>>>(%zu args)", kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
+          checkCudaErrors(cuLaunchKernel(F_simpleAssert,
+                kargs.blocks_per_grid, 1, 1,
+                kargs.threads_per_block, 1, 1,
+                0, cl->stream, (void **)&(kargs.arg_info[1]), 0));
+        } else {
+          mqx_print(DEBUG, "%s[%d]<<<%d, %d>>>(%zu args)", fname_table[kargs.function_index], kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
+          checkCudaErrors(cuLaunchKernel(fsym_table[kargs.function_index],
+                kargs.blocks_per_grid, 1, 1,
+                kargs.threads_per_block, 1, 1,
+                0, cl->stream, (void **)&(kargs.arg_info[1]), 0));
+        }
+        res.type = RES_OK;
+        serialize_mps_res(buf, res);
+        send(socket, buf, 2, 0);
+        break;
+      default:
+        mqx_print(FATAL, "no such type: %d", req.type);
+        goto finish;
+    }
   }
 
 finish:
   pthread_mutex_lock(&stats_lock);
-  server_stats.num_threads -= 1;
+  server_stats.nclients -= 1;
+  server_stats.clients_bitmap &= ~(1 << client_id);
+  cl->id = -1;
+  checkCudaErrors(cuStreamDestroy(cl->stream));
   pthread_mutex_unlock(&stats_lock);
+
+  free(client_socket);
+  close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
-  mqx_print(DEBUG, "living threads: %d", server_stats.num_threads);
+  mqx_print(DEBUG, "living threads: %d", server_stats.nclients);
   return NULL;
 }
