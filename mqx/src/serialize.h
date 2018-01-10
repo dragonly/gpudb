@@ -36,7 +36,5 @@ unsigned char* deserialize_kernel_args(unsigned char* const, struct kernel_args*
 int kernel_args_bytes(const struct kernel_args);
 unsigned char* serialize_mps_req(unsigned char*, const struct mps_req);
 unsigned char* deserialize_mps_req(unsigned char* const, struct mps_req*);
-unsigned char* serialize_mps_res(unsigned char*, const struct mps_res);
-unsigned char* deserialize_mps_res(unsigned char* const, struct mps_res*);
 #endif
 

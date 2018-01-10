@@ -41,10 +41,10 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
-mpsserver : mpsserver.o common.o serialize.o
+mpsserver : mpsserver.o common.o serialize.o mps.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
-mpsserver.o: mpsserver.c common.c
+mpsserver.o: mpsserver.c
 	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
 mpsclient : mpsclient.o serialize.o common.o

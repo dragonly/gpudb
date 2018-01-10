@@ -78,13 +78,6 @@ struct mps_req {
   uint16_t len;
 };
 
-#define RES_OK   0
-#define RES_FAIL 1
-#define MPS_RES_SIZE 2
-struct mps_res {
-  uint16_t type;
-};
-
 /**
  * original mqx related
  */
@@ -136,10 +129,14 @@ struct global_context {
   int ilru;
   // Global list of attached regions
   struct region_list regions;
-  struct mps_client mps_clients[NCLIENTS];
+
+  // mps related
+  struct mps_client mps_clients[MAX_CLIENTS];
   uint32_t mps_clients_bitmap;
   uint16_t mps_nclients;
   pthread_mutex_t mps_lock;
+  struct list_head allocated_regions;
+  pthread_mutex_t alloc_mutex;
 };
 
 enum msgtype {

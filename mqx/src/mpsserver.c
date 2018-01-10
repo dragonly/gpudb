@@ -33,11 +33,14 @@
 #include <errno.h>
 #include <signal.h>
 #include <cuda.h>
+#include <cuda_runtime_api.h>
 #include <pthread.h>
 #include "common.h"
 #include "protocol.h"
 #include "kernel_symbols.h"
 #include "serialize.h"
+#include "mps.h"
+#include "list.h"
 
 const char *mod_file_name = "ops.cubin";
 static CUcontext cudaContext;
@@ -132,6 +135,8 @@ int main(int argc, char **argv) {
   listen(server_socket, 128);
 
   pthread_mutex_init(&pglobal->mps_lock, NULL);
+  pthread_mutex_init(&pglobal->alloc_mutex, NULL);
+  INIT_LIST_HEAD(&pglobal->allocated_regions);
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
@@ -155,6 +160,7 @@ int main(int argc, char **argv) {
   }
 
   pthread_mutex_destroy(&pglobal->mps_lock);
+  pthread_mutex_destroy(&pglobal->alloc_mutex);
   unlink(SERVER_SOCKET_FILE);
 fail_bind:
   close(server_socket);
@@ -191,11 +197,9 @@ void *worker_thread(void *client_socket) {
   unsigned char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
   struct mps_req req;
-  struct mps_res res;
+  cudaError_t ret;
   uint16_t len;
   unsigned char *pbuf;
-  struct kernel_args kargs;
-  uint64_t nargs, offset; 
 
   while (1) {
     // read request header
@@ -218,11 +222,24 @@ void *worker_thread(void *client_socket) {
         len -= rret;
       };
     } while (len > 0);
+    // at your service
     switch (req.type) {
+      case REQ_GPU_MALLOC:
+        pbuf = buf;
+        void **devPtr;
+        size_t size;
+        uint32_t flags;
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&devPtr);
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
+        pbuf = deserialize_uint32(pbuf, &flags);
+        ret = mps_cudaMalloc(devPtr, size, flags);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
       case REQ_GPU_LAUNCH_KERNEL:;
+        struct kernel_args kargs;
+        uint64_t nargs, offset; 
         deserialize_kernel_args(buf, &kargs);
         nargs = (uint64_t)kargs.arg_info[0];
-
         for (int i = 0; i < nargs; i++) {
           offset = (uint64_t)kargs.arg_info[i+1];
           kargs.arg_info[i+1] = (void *)((uint8_t *)kargs.args + offset);
@@ -230,20 +247,19 @@ void *worker_thread(void *client_socket) {
         // test kernel
         if (kargs.function_index == 233) {
           mqx_print(DEBUG, "F_%d<<<%d, %d>>>(%zu args)", kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
-          checkCudaErrors(cuLaunchKernel(F_simpleAssert,
+          ret = cuLaunchKernel(F_simpleAssert,
                 kargs.blocks_per_grid, 1, 1,
                 kargs.threads_per_block, 1, 1,
-                0, cl->stream, (void **)&(kargs.arg_info[1]), 0));
+                0, cl->stream, (void **)&(kargs.arg_info[1]), 0);
         } else {
           mqx_print(DEBUG, "%s[%d]<<<%d, %d>>>(%zu args)", fname_table[kargs.function_index], kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
-          checkCudaErrors(cuLaunchKernel(fsym_table[kargs.function_index],
+          ret = cuLaunchKernel(fsym_table[kargs.function_index],
                 kargs.blocks_per_grid, 1, 1,
                 kargs.threads_per_block, 1, 1,
-                0, cl->stream, (void **)&(kargs.arg_info[1]), 0));
+                0, cl->stream, (void **)&(kargs.arg_info[1]), 0);
         }
-        res.type = RES_OK;
-        serialize_mps_res(buf, res);
-        send(socket, buf, 2, 0);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
         break;
       default:
         mqx_print(FATAL, "no such type: %d", req.type);

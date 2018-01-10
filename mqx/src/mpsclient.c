@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cuda.h>
+#include <cuda_runtime_api.h>
 #include "protocol.h"
 #include "serialize.h"
 
@@ -48,8 +49,10 @@ int main(int argc, char **argv) {
     perror("conencting server socket");
     exit(-1);
   }
+
   struct mps_req req;
   req.type = REQ_GPU_LAUNCH_KERNEL;
+
   struct kernel_args kargs;
   kargs.arg_info[0] = (void *)3;
   kargs.arg_info[1] = (void *)0;
@@ -64,6 +67,7 @@ int main(int argc, char **argv) {
   kargs.function_index = 233;
   int nbytes = kernel_args_bytes(kargs);
   req.len = nbytes;
+
   unsigned char *buf = (unsigned char *)malloc(nbytes);
   serialize_mps_req(buf, req);
   if (send(client_socket, buf, 4, 0) == -1) {
@@ -75,9 +79,9 @@ int main(int argc, char **argv) {
     perror("writing to client socket");
   }
   recv(client_socket, buf, 2, 0);
-  struct mps_res res;
-  deserialize_mps_res(buf, &res);
-  if (res.type == RES_OK) {
+  cudaError_t res;
+  deserialize_uint32(buf, &res);
+  if (res == cudaSuccess) {
     printf("kernel launch success\n");
   }
   req.type = REQ_QUIT;
