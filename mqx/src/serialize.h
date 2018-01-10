@@ -22,7 +22,6 @@
 #ifndef __SERIALIZE_H_
 #define __SERIALIZE_H_
 #include <stdint.h>
-#include "mps.h"
 
 unsigned char* serialize_uint16(unsigned char*, const uint16_t);
 unsigned char* deserialize_uint16(unsigned char*, uint16_t*);

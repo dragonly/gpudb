@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2014 Kaibo Wang (wkbjerry@gmail.com)
+ * Copyright (c) 2017 Yilong Li <liyilongko@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +29,63 @@
 #include "list.h"
 #include "spinlock.h"
 #include <unistd.h>
+#include <stdint.h>
+#include <cuda.h>
 
+/**
+ * MPS related
+ */
+#define SERVER_SOCKET_FILE "mqx_mps_server"
+#define MAX_BUFFER_SIZE 8192
+
+#define MAX_ARG_SIZE  4096
+#define MAX_ARG_NUM   16
+#define MAX_CLIENTS   32
+
+struct mps_client {
+  uint16_t id;
+  CUstream stream;
+};
+struct server_stats {
+  struct mps_client clients[MAX_CLIENTS];
+  // hard coded as 32 bit unsigned int for simplicity
+  uint32_t clients_bitmap;
+  uint16_t nclients;
+};
+struct kernel_args {
+  void *arg_info[MAX_ARG_NUM + 1];
+  uint16_t last_arg_len;
+  char args[MAX_ARG_SIZE];
+  uint16_t blocks_per_grid;
+  uint16_t threads_per_block;
+  uint16_t function_index;
+};
+
+#define REQ_HOST_MALLOC             0
+#define REQ_GPU_LAUNCH_KERNEL       1
+#define REQ_GPU_MALLOC              2
+#define REQ_GPU_MEMCPY_HTOD_SYNC    3
+#define REQ_GPU_MEMCPY_HTOD_ASYNC   4
+#define REQ_GPU_MEMCPY_DTOH_SYNC    5
+#define REQ_GPU_MEMCPY_DTOH_ASYNC   6
+#define REQ_GPU_SYNC                7
+#define REQ_GPU_MEMFREE             8
+#define REQ_GPU_MEMSET              9
+#define REQ_QUIT                    10
+struct mps_req {
+  uint16_t type;
+  uint16_t len;
+};
+
+#define RES_OK   0
+#define RES_FAIL 1
+struct mps_res {
+  uint16_t type;
+};
+
+/**
+ * original mqx related
+ */
 struct region_elem {
   int cid;
   int iprev, inext;
@@ -77,6 +134,10 @@ struct global_context {
   int ilru;
   // Global list of attached regions
   struct region_list regions;
+  struct mps_client mps_clients[NCLIENTS];
+  uint32_t mps_clients_bitmap;
+  uint16_t mps_nclients;
+  pthread_mutex_t mps_lock;
 };
 
 enum msgtype {
@@ -184,3 +245,4 @@ static inline void RLIST_MOV(struct region_list *p, int imov) {
 }
 
 #endif
+

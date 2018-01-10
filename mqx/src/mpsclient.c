@@ -28,7 +28,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "mps.h"
+#include <cuda.h>
+#include "protocol.h"
 #include "serialize.h"
 
 int main(int argc, char **argv) {
@@ -54,7 +55,7 @@ int main(int argc, char **argv) {
   kargs.arg_info[1] = (void *)0;
   kargs.arg_info[2] = (void *)2;
   kargs.arg_info[3] = (void *)10;
-  *(uint16_t *)kargs.args = 59;
+  *(uint16_t *)kargs.args = 63;
   *(uint64_t *)((uint8_t *)kargs.args+2) = 6;
   *(uint16_t *)((uint8_t *)kargs.args+10) = 7;
   kargs.last_arg_len = 2;

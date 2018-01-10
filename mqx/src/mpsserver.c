@@ -23,6 +23,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +36,6 @@
 #include <pthread.h>
 #include "common.h"
 #include "protocol.h"
-#include "mps.h"
 #include "drvapi_error_string.h"
 #include "kernel_symbols.h"
 #include "serialize.h"
@@ -61,14 +63,14 @@ static CUmodule mod_ops;
 static CUmodule test_mod_ops;
 static CUfunction F_simpleAssert;
 
-void initCUDA() {
+int initCUDA() {
   int device_count = 0;
   CUdevice device;
   checkCudaErrors(cuInit(0));
   checkCudaErrors(cuDeviceGetCount(&device_count));
   if (device_count == 0) {
     mqx_print(FATAL, "no devices supporting CUDA");
-    exit(-1);
+    return -1;
   }
   mqx_print(DEBUG, "device count: %d", device_count);
   checkCudaErrors(cuDeviceGet(&device, 0));
@@ -92,24 +94,32 @@ void initCUDA() {
     //mqx_print(DEBUG, "loaded module: %s(%p), function: %s(%p)", mod_file_name, mod_ops, fname_table[i], fsym_table[i]);
   }
   mqx_print(DEBUG, "CUDA module and functions loaded");
+  return 0;
 }
 
 void *worker_thread(void *socket);
 
-pthread_mutex_t stats_lock;
-struct server_stats server_stats;
+struct global_context *pglobal;
 
-#ifdef STANDALONE
 int main(int argc, char **argv) {
-#else
-void server_main() {
-#endif
-  initCUDA();
+  if (initCUDA() == -1) goto fail_cuda;
   //mqx_print(DEBUG, "early exit for debugging");
   //exit(0);
 
-  server_stats.clients_bitmap = 0;
-  server_stats.nclients = 0;
+  int shmfd;
+  shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR, 0);
+  if (shmfd == -1) {
+    mqx_print(FATAL, "Failed to open shared memory: %s.", strerror(errno));
+      goto fail_shm;
+  }
+  pglobal = (struct global_context *)mmap(NULL /* address */, sizeof(struct global_context), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0 /* offset */);
+  if (pglobal == MAP_FAILED) {
+    mqx_print(FATAL, "Failed to mmap shared memory: %s.", strerror(errno));
+    goto fail_mmap;
+  }
+
+  pglobal->mps_clients_bitmap = 0;
+  pglobal->mps_nclients = 0;
   int server_socket;
   struct sockaddr_un server;
 
@@ -129,7 +139,7 @@ void server_main() {
   }
   listen(server_socket, 128);
 
-  pthread_mutex_init(&stats_lock, NULL);
+  pthread_mutex_init(&pglobal->mps_lock, NULL);
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
@@ -137,7 +147,7 @@ void server_main() {
       mqx_print(ERROR, "accept: %s", strerror(errno));
       continue;
     }
-    if (server_stats.nclients >= MAX_CLIENTS) {
+    if (pglobal->mps_nclients >= MAX_CLIENTS) {
       mqx_print(ERROR, "max clients served (%d), connection rejected", MAX_CLIENTS);
       close(client_socket);
       continue;
@@ -151,30 +161,35 @@ void server_main() {
       continue;
     }
   }
-  pthread_mutex_destroy(&stats_lock);
+  pthread_mutex_destroy(&pglobal->mps_lock);
   close(server_socket);
   unlink(SERVER_SOCKET_FILE);
+fail_mmap:
+  close(shmfd);
+fail_shm:
+fail_cuda:
   checkCudaErrors(cuCtxDestroy(cudaContext));
 }
 
 void *worker_thread(void *client_socket) {
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
 
-  pthread_mutex_lock(&stats_lock);
-  server_stats.nclients += 1;
+  pthread_mutex_lock(&pglobal->mps_lock);
+  pglobal->mps_nclients += 1;
   int client_id = -1;
-  for (int i = 0; i < server_stats.nclients; i++) {
-    if ((server_stats.clients_bitmap & (1 << i)) == 0) {
+  int nclients = pglobal->mps_nclients;
+  for (int i = 0; i < nclients; i++) {
+    if ((pglobal->mps_clients_bitmap & (1 << i)) == 0) {
       client_id = i;
-      server_stats.clients_bitmap |= (1 << i);
+      pglobal->mps_clients_bitmap |= (1 << i);
       break;
     }
   }
-  struct mps_client *cl = &server_stats.clients[client_id];
+  struct mps_client *cl = &pglobal->mps_clients[client_id];
   cl->id = client_id;
   checkCudaErrors(cuStreamCreate(&cl->stream, CU_STREAM_DEFAULT));
-  pthread_mutex_unlock(&stats_lock);
-  mqx_print(DEBUG, "worker thread created (%d/%d)", client_id, server_stats.nclients);
+  pthread_mutex_unlock(&pglobal->mps_lock);
+  mqx_print(DEBUG, "worker thread created (%d/%d)", client_id, pglobal->mps_nclients);
   
   int rret;
   int socket = *(int *)client_socket;
@@ -242,16 +257,16 @@ void *worker_thread(void *client_socket) {
   }
 
 finish:
-  pthread_mutex_lock(&stats_lock);
-  server_stats.nclients -= 1;
-  server_stats.clients_bitmap &= ~(1 << client_id);
+  pthread_mutex_lock(&pglobal->mps_lock);
+  pglobal->mps_nclients -= 1;
+  pglobal->mps_clients_bitmap &= ~(1 << client_id);
   cl->id = -1;
   checkCudaErrors(cuStreamDestroy(cl->stream));
-  pthread_mutex_unlock(&stats_lock);
+  pthread_mutex_unlock(&pglobal->mps_lock);
 
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
-  mqx_print(DEBUG, "living threads: %d", server_stats.nclients);
+  mqx_print(DEBUG, "living threads: %d", pglobal->mps_nclients);
   return NULL;
 }
