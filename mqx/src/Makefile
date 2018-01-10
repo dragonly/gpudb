@@ -44,7 +44,7 @@ depend : .depend
 mpsserver : mpsserver.o common.o serialize.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
-mpsserver.o: mpsserver.c common.c drvapi_error_string.h
+mpsserver.o: mpsserver.c common.c
 	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
 mpsclient : mpsclient.o serialize.o common.o

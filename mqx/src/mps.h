@@ -21,3 +21,6 @@
  */
 
 int mps_client_init();
+cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, int flags);
+
+cudaError_t mpsserver_cuLaunchKernel(char *const);

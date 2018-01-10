@@ -24,6 +24,7 @@
 
 #include <execinfo.h>
 #include <stdio.h>
+#include <cuda.h>
 #ifdef MQX_CONFIG_PROFILE
 #include "stats.h"    // for TVAL macro
 #include <sys/time.h> // for gettimeofday
@@ -119,5 +120,9 @@ void panic(const char *msg);
     if (!(cond))                                                                                                       \
       panic(msg);                                                                                                      \
   } while (0)
+
+#define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)
+void __checkCudaErrors(CUresult err, const char *file, const int line);
+const char *getCudaDrvErrorString(CUresult error_id);
 
 #endif

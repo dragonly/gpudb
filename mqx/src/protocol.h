@@ -72,6 +72,7 @@ struct kernel_args {
 #define REQ_GPU_MEMFREE             8
 #define REQ_GPU_MEMSET              9
 #define REQ_QUIT                    10
+#define MPS_REQ_SIZE 4
 struct mps_req {
   uint16_t type;
   uint16_t len;
@@ -79,6 +80,7 @@ struct mps_req {
 
 #define RES_OK   0
 #define RES_FAIL 1
+#define MPS_RES_SIZE 2
 struct mps_res {
   uint16_t type;
 };

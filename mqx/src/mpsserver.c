@@ -36,19 +36,8 @@
 #include <pthread.h>
 #include "common.h"
 #include "protocol.h"
-#include "drvapi_error_string.h"
 #include "kernel_symbols.h"
 #include "serialize.h"
-
-#define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)
-static inline void __checkCudaErrors( CUresult err, const char *file, const int line )
-{
-  if (CUDA_SUCCESS != err) {
-    mqx_print(FATAL, "CUDA Driver API error = %04d  \"%s\" from file <%s>, line %i.",
-            err, getCudaDrvErrorString(err), file, line );
-    exit(-1);
-  }
-}
 
 const char *mod_file_name = "ops.cubin";
 static CUcontext cudaContext;
