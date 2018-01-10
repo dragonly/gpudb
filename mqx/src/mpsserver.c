@@ -50,12 +50,6 @@ static inline void __checkCudaErrors( CUresult err, const char *file, const int 
   }
 }
 
-void sigint_handler(int signum) {
-  mqx_print(DEBUG, "closing server...");
-  unlink(SERVER_SOCKET_FILE);
-  exit(0);
-}
-
 const char *mod_file_name = "ops.cubin";
 static CUcontext cudaContext;
 static CUmodule mod_ops;
@@ -99,14 +93,23 @@ int initCUDA() {
 
 void *worker_thread(void *socket);
 
+int shmfd;
 struct global_context *pglobal;
+
+void sigint_handler(int signum) {
+  mqx_print(DEBUG, "closing server...");
+  pthread_mutex_destroy(&pglobal->mps_lock);
+  unlink(SERVER_SOCKET_FILE);
+  close(shmfd);
+  checkCudaErrors(cuCtxDestroy(cudaContext));
+  exit(0);
+}
 
 int main(int argc, char **argv) {
   if (initCUDA() == -1) goto fail_cuda;
   //mqx_print(DEBUG, "early exit for debugging");
   //exit(0);
 
-  int shmfd;
   shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR, 0);
   if (shmfd == -1) {
     mqx_print(FATAL, "Failed to open shared memory: %s.", strerror(errno));
@@ -129,13 +132,13 @@ int main(int argc, char **argv) {
   server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socket < 0) {
     mqx_print(DEBUG, "opening server socket: %s", strerror(errno));
-    exit(-1);
+    goto fail_create_socket;
   }
   server.sun_family = AF_UNIX;
   strcpy(server.sun_path, SERVER_SOCKET_FILE);
   if (bind(server_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
     mqx_print(DEBUG, "binding server socket: %s", strerror(errno));
-    exit(-1);
+    goto fail_bind;
   }
   listen(server_socket, 128);
 
@@ -161,9 +164,12 @@ int main(int argc, char **argv) {
       continue;
     }
   }
+
   pthread_mutex_destroy(&pglobal->mps_lock);
-  close(server_socket);
   unlink(SERVER_SOCKET_FILE);
+fail_bind:
+  close(server_socket);
+fail_create_socket:
 fail_mmap:
   close(shmfd);
 fail_shm:

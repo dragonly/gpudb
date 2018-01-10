@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2014 Kaibo Wang (wkbjerry@gmail.com)
+ * Copyright (c) 2017 Yilong Li <liyilongko@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,6 +32,7 @@
 #include "common.h"
 #include "core.h"
 #include "cow.h"
+#include "mps.h"
 #include "interfaces.h"
 #include "protocol.h"
 
@@ -58,6 +60,7 @@ cudaError_t (*nv_cudaStreamAddCallback)(cudaStream_t, cudaStreamCallback_t, void
 
 // Indicates whether the MQX environment has been initialized successfully.
 volatile int initialized = 0;
+volatile int mps_initialized = 0;
 
 // The library constructor.
 // The order of initialization matters. First, link to the default
@@ -108,6 +111,14 @@ __attribute__((constructor)) void mqx_init(void) {
     client_fini();
     return;
   }
+  if (mps_client_init()) {
+    mqx_print(FATAL, "Failed to attach to MQX global context.");
+    cow_fini();
+    context_fini();
+    client_fini();
+    return;
+  }
+  mps_initialized = 1;
 
 #ifdef MQX_SET_MAPHOST
   // If the user program wants to map pinned host memory to device

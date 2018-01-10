@@ -2,7 +2,7 @@
  * This is just a toy implementation, no any kinds of protection against exploitations.
  */
 #include <stdio.h>
-#include "serialize.h"
+#include "protocol.h"
 
 unsigned char* serialize_uint16(unsigned char *buffer, const uint16_t value) {
   buffer[0] = value >> 8;

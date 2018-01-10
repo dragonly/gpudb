@@ -28,7 +28,7 @@ LDFLAGS := -shared -pthread -ldl
 .DEFAULT_GOAL := all
 .PHONY : depend all clean install uninstall
 
-all : depend mqxctl $(LIBNAME)
+all : depend mqxctl $(LIBNAME) mpsserver mpsclient
 
 # Generate dependencies for $(OBJS)
 depend : .depend
