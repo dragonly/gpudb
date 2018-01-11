@@ -27,7 +27,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
@@ -196,7 +195,6 @@ void *worker_thread(void *client_socket) {
   unsigned char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
   struct mps_req req;
-  cudaError_t ret;
   uint16_t len;
   unsigned char *pbuf;
 
@@ -223,19 +221,28 @@ void *worker_thread(void *client_socket) {
     } while (len > 0);
     // at your service
     switch (req.type) {
-      case REQ_GPU_MALLOC:
+      case REQ_GPU_MALLOC: {
         pbuf = buf;
         void *devPtr;
         size_t size;
         uint32_t flags;
-        pbuf = deserialize_uint64(pbuf, (uint64_t *)&devPtr);
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
         pbuf = deserialize_uint32(pbuf, &flags);
-        ret = mpsserver_cudaMalloc(&devPtr, size, flags);
-        pbuf = serialize_uint32(buf, ret);
-        pbuf = serialize_uint64(buf, *(uint64_t *)devPtr);
+        cudaError_t ret = mpsserver_cudaMalloc(&devPtr, size, flags);
+        pbuf = buf;
+        pbuf = serialize_uint32(pbuf, ret);
+        pbuf = serialize_uint64(pbuf, (uint64_t)devPtr);
+        mqx_print(DEBUG, "server cudaMalloc: devPtr(%p), ret(%d)", devPtr, ret);
         send(socket, buf, 4+8, 0);
-      case REQ_GPU_LAUNCH_KERNEL:;
+      } break;
+      case REQ_GPU_MEMFREE: {
+        void *devPtr;
+        deserialize_uint64(buf, (uint64_t *)&devPtr);
+        cudaError_t ret = mpsserver_cudaFree(devPtr);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
+      } break;
+      case REQ_GPU_LAUNCH_KERNEL: {
         struct kernel_args kargs;
         uint64_t nargs, offset; 
         deserialize_kernel_args(buf, &kargs);
@@ -245,6 +252,7 @@ void *worker_thread(void *client_socket) {
           kargs.arg_info[i+1] = (void *)((uint8_t *)kargs.args + offset);
         }
         // test kernel
+        cudaError_t ret;
         if (kargs.function_index == 233) {
           mqx_print(DEBUG, "F_%d<<<%d, %d>>>(%zu args)", kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
           ret = cuLaunchKernel(F_simpleAssert,
@@ -260,7 +268,7 @@ void *worker_thread(void *client_socket) {
         }
         serialize_uint32(buf, ret);
         send(socket, buf, 4, 0);
-        break;
+      } break;
       default:
         mqx_print(FATAL, "no such type: %d", req.type);
         goto finish;

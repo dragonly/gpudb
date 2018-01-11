@@ -17,7 +17,10 @@ OBJS = $(SRCS:.c=.o)
 # Compiler/linker settings
 CC := gcc
 NVCC := $(CUDAPATH)/bin/nvcc
-CFLAGS := -g -Wall -fPIC -fvisibility=hidden -I$(CUDAPATH)/include \
+#CFLAGS := -g -Wall -fPIC -fvisibility=hidden -I$(CUDAPATH)/include \
+#          -DCUDAPATH=\"$(CUDAPATH)\" -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) \
+#          $(FLAG_PRINT_BUFFER) $(MQX_CONFIGS)
+CFLAGS := -g -Wall -fPIC -I$(CUDAPATH)/include \
           -DCUDAPATH=\"$(CUDAPATH)\" -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) \
           $(FLAG_PRINT_BUFFER) $(MQX_CONFIGS)
 LDFLAGS := -shared -pthread -ldl
@@ -25,7 +28,7 @@ LDFLAGS := -shared -pthread -ldl
 .DEFAULT_GOAL := all
 .PHONY : depend all clean install uninstall
 
-all : depend mqxctl libmqx libmps mpsserver mps_testclient
+all: depend mqxctl libmqx.so libmps.so mpsserver mps_testclient
 
 # Generate dependencies for $(OBJS)
 depend : .depend
@@ -44,8 +47,8 @@ mpsserver : mpsserver.o common.o serialize.o libmpsserver.o
 mpsserver.o: mpsserver.c
 	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-libmps: libmpsclient.o serialize.o common.o mps_interfaces.o
-	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+libmps.so: libmpsclient.o serialize.o common.o mps_interfaces.o
+	$(CC) -g -Wall -shared -pthread -ldl -lcuda -DMQX_PRINT_LEVEL=5  -I$(CUDAPATH)/include $^ -o $@
 
 mps_testclient : mps_testclient.o serialize.o common.o
 	$(NVCC) -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -lrt -ldl -lpthread -arch=sm_61 $^ -o $@
@@ -59,11 +62,11 @@ mqxctl : mqxctl.o common.o
 mqxctl.o : mqxctl.c common.h protocol.h spinlock.h list.h atomic.h
 	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-libmqx: $(OBJS)
+libmqx.so: $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) -o $@
 
 clean:
-	-rm -f mpsserver mps_testclient mqxctl libmps libmqx *.o .depend
+	-rm -f mpsserver mps_testclient mqxctl libmps.so libmqx.so *.o .depend
 
 # TODO
 install: ;

@@ -60,4 +60,5 @@ struct mps_region {
 };
 
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
+cudaError_t mpsserver_cudaFree(void *devPtr);
 

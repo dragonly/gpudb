@@ -28,4 +28,5 @@ cudaError_t mpsclient_cudaMemcpyHtoD(void *dst, const void *src, size_t size);
 cudaError_t mpsclient_cudaMemcpyDtoH(void *dst, const void *src, size_t size);
 cudaError_t mpsclient_cudaMemcpyDtoD(void *dst, const void *src, size_t size);
 cudaError_t mpsclient_cudaMemcpyDefault(void *dst, const void *src, size_t size);
+cudaError_t mpsclient_cudaLaunchKernel(const void*, dim3, dim3, void**, size_t, cudaStream_t);
 
