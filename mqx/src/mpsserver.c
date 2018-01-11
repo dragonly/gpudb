@@ -226,15 +226,16 @@ void *worker_thread(void *client_socket) {
     switch (req.type) {
       case REQ_GPU_MALLOC:
         pbuf = buf;
-        void **devPtr;
+        void *devPtr;
         size_t size;
         uint32_t flags;
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&devPtr);
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
         pbuf = deserialize_uint32(pbuf, &flags);
-        ret = mps_cudaMalloc(devPtr, size, flags);
-        serialize_uint32(buf, ret);
-        send(socket, buf, 4, 0);
+        ret = mps_cudaMalloc(&devPtr, size, flags);
+        pbuf = serialize_uint32(buf, ret);
+        pbuf = serialize_uint64(buf, *(uint64_t *)devPtr);
+        send(socket, buf, 4+8, 0);
       case REQ_GPU_LAUNCH_KERNEL:;
         struct kernel_args kargs;
         uint64_t nargs, offset; 

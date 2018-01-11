@@ -137,6 +137,8 @@ struct global_context {
   pthread_mutex_t mps_lock;
   struct list_head allocated_regions;
   pthread_mutex_t alloc_mutex;
+  struct list_head attached_regions;
+  pthread_mutex_t attach_mutex;
 };
 
 enum msgtype {

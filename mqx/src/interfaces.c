@@ -23,6 +23,7 @@
 // This file contains the interfaces intercepted and enhanced by MQX
 // for managing GPU resources. Other functions added by MQX also reside here.
 
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <stdint.h>
@@ -32,7 +33,6 @@
 #include "common.h"
 #include "core.h"
 #include "cow.h"
-#include "mps.h"
 #include "interfaces.h"
 #include "protocol.h"
 
@@ -58,9 +58,10 @@ cudaError_t (*nv_cudaDeviceSynchronize)(void) = NULL;
 cudaError_t (*nv_cudaLaunch)(const void *) = NULL;
 cudaError_t (*nv_cudaStreamAddCallback)(cudaStream_t, cudaStreamCallback_t, void *, unsigned int) = NULL;
 
+CUresult (*nv_cuMemFree)(CUdeviceptr) = NULL;
+
 // Indicates whether the MQX environment has been initialized successfully.
 volatile int initialized = 0;
-volatile int mps_initialized = 0;
 
 // The library constructor.
 // The order of initialization matters. First, link to the default
@@ -111,14 +112,6 @@ __attribute__((constructor)) void mqx_init(void) {
     client_fini();
     return;
   }
-  if (mps_client_init()) {
-    mqx_print(FATAL, "Failed to attach to MQX global context.");
-    cow_fini();
-    context_fini();
-    client_fini();
-    return;
-  }
-  mps_initialized = 1;
 
 #ifdef MQX_SET_MAPHOST
   // If the user program wants to map pinned host memory to device

@@ -36,25 +36,31 @@ struct mps_block {
 typedef enum {
   DETACHED = 0, // not allocated with device memory
   ATTACHED,     // allocated with device memory
-  FREEING,      // being freed
-  EVICTING,     // being evicted
+  EVICTED,      // evicted
   ZOMBIE        // waiting to be GC'ed
 } mps_region_state_t;
+// Device memory region flags.
+#define FLAG_PTARRAY  1  // In mqx.h
+#define FLAG_COW      2  // Copy-on-write
+#define FLAG_MEMSET   4  // Lazy cudaMemset
 struct mps_region {
-  size_t size;
+  pthread_mutex_t mm_mutex;
   mps_region_state_t state;
   void *gpu_addr;
   void *swap_addr;
   struct mps_block *blocks;
-  pthread_mutex_t mutex_lock;
   struct list_head entry_alloc;
+  struct list_head entry_attach;
+  size_t size;
   int32_t memset_value;
   uint32_t nblocks;
   uint32_t flags;
+  uint32_t using_kernels;
+  uint64_t evict_cost;
 };
 
 int mps_client_init();
 cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
+cudaError_t mpsclient_cudaFree(void *devPtr);
 cudaError_t mps_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
-void add_allocated_region(struct mps_region *rgn);
 

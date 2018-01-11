@@ -41,7 +41,7 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
-mpsserver : mpsserver.o common.o serialize.o mps.o
+mpsserver : mpsserver.o common.o serialize.o mps.o mps_interfaces.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
