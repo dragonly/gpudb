@@ -8,10 +8,11 @@
 *.out
 .metadata
 log
-mpsclient
+mps_testclient
 mpsserver
 gpuDBLoader
 mqxctl
+libmqx
 gmon.out
 driver.cu
 cscope.*

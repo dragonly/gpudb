@@ -6,13 +6,10 @@ else
 FLAG_PRINT_BUFFER := -DMQX_PRINT_BUFFER
 endif
 
-# Name of output shared library
-LIBNAME = libmqx.so
-
 # CUDA installation path
 CUDAPATH = /usr/local/cuda
 
-# Source files needed to generate $(LIBNAME)
+# Source files needed to generate libmqx
 SRCS = client.c common.c core.c cow.c interfaces.c \
 	   msq.c replacement.c stats.c libc_hooks.c
 OBJS = $(SRCS:.c=.o)
@@ -28,7 +25,7 @@ LDFLAGS := -shared -pthread -ldl
 .DEFAULT_GOAL := all
 .PHONY : depend all clean install uninstall
 
-all : depend mqxctl $(LIBNAME) mpsserver mpsclient
+all : depend mqxctl libmqx libmps mpsserver mps_testclient
 
 # Generate dependencies for $(OBJS)
 depend : .depend
@@ -41,17 +38,20 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
-mpsserver : mpsserver.o common.o serialize.o mps.o mps_interfaces.o
-	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
+mpsserver : mpsserver.o common.o serialize.o libmpsserver.o
+	$(NVCC) -cudart=static -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
-	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-mpsclient : mpsclient.o serialize.o common.o
-	$(NVCC) -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 $^ -o $@
+libmps: libmpsclient.o serialize.o common.o mps_interfaces.o
+	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-mpsclient.o: mpsclient.c
-	$(NVCC) -c -g --compiler-options -Wall -DMQX_PRINT_LEVEL=5 $< -o $@
+mps_testclient : mps_testclient.o serialize.o common.o
+	$(NVCC) -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -lrt -ldl -lpthread -arch=sm_61 $^ -o $@
+
+mps_testclient.o: mps_testclient.c
+	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=5 $< -o $@
 
 mqxctl : mqxctl.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@
@@ -59,11 +59,11 @@ mqxctl : mqxctl.o common.o
 mqxctl.o : mqxctl.c common.h protocol.h spinlock.h list.h atomic.h
 	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
-$(LIBNAME): $(OBJS)
+libmqx: $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) -o $@
 
 clean:
-	-rm -f mpsserver mpsclient mqxctl $(LIBNAME) *.o .depend
+	-rm -f mpsserver mps_testclient mqxctl libmps libmqx *.o .depend
 
 # TODO
 install: ;

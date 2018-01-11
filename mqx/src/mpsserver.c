@@ -26,7 +26,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -39,7 +38,7 @@
 #include "protocol.h"
 #include "kernel_symbols.h"
 #include "serialize.h"
-#include "mps.h"
+#include "libmpsserver.h"
 #include "list.h"
 
 const char *mod_file_name = "ops.cubin";
@@ -232,7 +231,7 @@ void *worker_thread(void *client_socket) {
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&devPtr);
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
         pbuf = deserialize_uint32(pbuf, &flags);
-        ret = mps_cudaMalloc(&devPtr, size, flags);
+        ret = mpsserver_cudaMalloc(&devPtr, size, flags);
         pbuf = serialize_uint32(buf, ret);
         pbuf = serialize_uint64(buf, *(uint64_t *)devPtr);
         send(socket, buf, 4+8, 0);

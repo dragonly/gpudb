@@ -59,8 +59,5 @@ struct mps_region {
   uint64_t evict_cost;
 };
 
-int mps_client_init();
-cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
-cudaError_t mpsclient_cudaFree(void *devPtr);
-cudaError_t mps_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
+cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 
