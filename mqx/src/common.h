@@ -113,12 +113,21 @@ void mqx_print_fini();
 static inline pid_t gettid() { return (pid_t)syscall(__NR_gettid); }
 #endif
 
-void panic(const char *msg);
+void show_stackframe();
+#define ASSERT(cond, fmt, arg...) \
+  do {                            \
+    if (!(cond)) {                \
+      mqx_print(FATAL, "ASSERT " fmt, ##arg); \
+      show_stackframe();          \
+      exit(-1);                   \
+    }                             \
+  } while (0)
 
-#define CHECK(cond, msg)                                                                             \
-  do {                                                                                               \
-    if (!(cond))                                                                                     \
-      panic(msg);                                                                                    \
+void panic(const char *msg);
+#define CHECK(cond, msg) \
+  do {                           \
+    if (!(cond))                 \
+      panic(msg);                \
   } while (0)
 
 #define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)

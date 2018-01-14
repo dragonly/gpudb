@@ -20,10 +20,10 @@
  * THE SOFTWARE.
  */
 #include <cuda_runtime_api.h>
-#include "list.h"
 
-#define BLOCKSIZE (8L * 1024L * 1024L)
-#define BLOCKSHIFT 23
+// data types
+#define BLOCKSIZE (1L * 1024L * 1024L)
+#define BLOCKSHIFT 20
 #define BLOCKMASK (~(BLOCKSIZE - 1))
 #define NBLOCKS(size) (((size) + BLOCKSIZE - 1) >> BLOCKSHIFT)
 #define BLOCKIDX(offset) (((uint64_t)(offset)) >> BLOCKSHIFT)
@@ -56,9 +56,16 @@ struct mps_region {
   uint32_t nblocks;
   uint32_t flags;
   uint32_t using_kernels;
+  uint32_t n_input;
+  uint32_t n_output;
   uint64_t evict_cost;
 };
 
+
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsserver_cudaFree(void *devPtr);
+cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind);
+int recv_large_buf(int socket, unsigned char *buf, uint32_t size);
+int dma_channel_init(struct mps_dma_channel *channel, int isHtoD);
+void dma_channel_destroy(struct mps_dma_channel *channel);
 

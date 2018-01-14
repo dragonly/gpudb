@@ -38,19 +38,16 @@ cudaError_t cudaMallocEx(void **devPtr, size_t size, uint32_t flags) {
 cudaError_t cudaFree(void *devPtr) {
   return mpsclient_cudaFree(devPtr);
 }
-cudaError_t cudaMemcpy(void *dst, const void *src, size_t count, enum cudaMemcpyKind kind) {
+cudaError_t cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyKind kind) {
   switch (kind) {
     case cudaMemcpyHostToDevice:
-      return mpsclient_cudaMemcpyHtoD(dst, src, count);
     case cudaMemcpyDeviceToHost:
-      return mpsclient_cudaMemcpyDtoH(dst, src, count);
     case cudaMemcpyDeviceToDevice:
-      return mpsclient_cudaMemcpyDtoD(dst, src, count);
     case cudaMemcpyDefault:
-      return mpsclient_cudaMemcpyDefault(dst, src, count);
+      return mpsclient_cudaMemcpy(dst, src, size, kind);
     case cudaMemcpyHostToHost:
     default:
-      return nv_cudaMemcpy(dst, src, count, kind);
+      return nv_cudaMemcpy(dst, src, size, kind);
   }
 }
 cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {

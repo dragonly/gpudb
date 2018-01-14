@@ -88,7 +88,7 @@ struct global_context *pglobal;
 
 void sigint_handler(int signum) {
   mqx_print(DEBUG, "closing server...");
-  pthread_mutex_destroy(&pglobal->mps_lock);
+  pthread_mutex_destroy(&pglobal->client_mutex);
   unlink(SERVER_SOCKET_FILE);
   close(shmfd);
   checkCudaErrors(cuCtxDestroy(cudaContext));
@@ -110,9 +110,17 @@ int main(int argc, char **argv) {
     mqx_print(FATAL, "Failed to mmap shared memory: %s.", strerror(errno));
     goto fail_mmap;
   }
-
+  memset(pglobal->mps_clients, 0, sizeof(struct mps_client) * MAX_CLIENTS);
+  for (int i = 0; i < MAX_CLIENTS; i++) {
+    pglobal->mps_clients[i].id = -1;
+  }
   pglobal->mps_clients_bitmap = 0;
   pglobal->mps_nclients = 0;
+  pthread_mutex_init(&pglobal->client_mutex, NULL);
+  pthread_mutex_init(&pglobal->alloc_mutex, NULL);
+  INIT_LIST_HEAD(&pglobal->allocated_regions);
+  INIT_LIST_HEAD(&pglobal->attached_regions);
+
   int server_socket;
   struct sockaddr_un server;
 
@@ -132,9 +140,6 @@ int main(int argc, char **argv) {
   }
   listen(server_socket, 128);
 
-  pthread_mutex_init(&pglobal->mps_lock, NULL);
-  pthread_mutex_init(&pglobal->alloc_mutex, NULL);
-  INIT_LIST_HEAD(&pglobal->allocated_regions);
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
@@ -157,8 +162,26 @@ int main(int argc, char **argv) {
     }
   }
 
-  pthread_mutex_destroy(&pglobal->mps_lock);
+  memset(pglobal->mps_clients, 0, sizeof(struct mps_client) * MAX_CLIENTS);
+  for (int i = 0; i < MAX_CLIENTS; i++) {
+    pglobal->mps_clients[i].id = -1;
+  }
+  pglobal->mps_clients_bitmap = 0;
+  pglobal->mps_nclients = 0;
+  pthread_mutex_destroy(&pglobal->client_mutex);
   pthread_mutex_destroy(&pglobal->alloc_mutex);
+  struct list_head *pos;
+  struct mps_region *rgn;
+  list_for_each(pos, &pglobal->allocated_regions) {
+    rgn = list_entry(pos, struct mps_region, entry_alloc);
+    free(rgn->blocks);
+    free(rgn);
+  }
+  list_for_each(pos, &pglobal->attached_regions) {
+    rgn = list_entry(pos, struct mps_region, entry_attach);
+    free(rgn->blocks);
+    free(rgn);
+  }
   unlink(SERVER_SOCKET_FILE);
 fail_bind:
   close(server_socket);
@@ -173,7 +196,7 @@ fail_cuda:
 void *worker_thread(void *client_socket) {
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
 
-  pthread_mutex_lock(&pglobal->mps_lock);
+  pthread_mutex_lock(&pglobal->client_mutex);
   pglobal->mps_nclients += 1;
   int client_id = -1;
   int nclients = pglobal->mps_nclients;
@@ -184,10 +207,13 @@ void *worker_thread(void *client_socket) {
       break;
     }
   }
-  struct mps_client *cl = &pglobal->mps_clients[client_id];
-  cl->id = client_id;
-  checkCudaErrors(cuStreamCreate(&cl->stream, CU_STREAM_DEFAULT));
-  pthread_mutex_unlock(&pglobal->mps_lock);
+  struct mps_client *client = &pglobal->mps_clients[client_id];
+  client->id = client_id;
+  checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
+  dma_channel_init(&client->dma_htod, 1);
+  dma_channel_init(&client->dma_dtoh, 0);
+  pthread_mutex_init(&client->dma_mutex, NULL);
+  pthread_mutex_unlock(&pglobal->client_mutex);
   mqx_print(DEBUG, "worker thread created (%d/%d)", client_id, pglobal->mps_nclients);
   
   int rret;
@@ -200,20 +226,20 @@ void *worker_thread(void *client_socket) {
 
   while (1) {
     // read request header
-    rret = recv(socket, buf, 4 /*sizeof serialized struct mps_req*/, 0);
+    rret = recv(socket, buf, MPS_REQ_SIZE, 0);
     deserialize_mps_req(buf, &req);
     if (req.type == REQ_QUIT) {
       mqx_print(DEBUG, "client quit");
       goto finish;
     }
-    memset(buf, 0, 4);
+    memset(buf, 0, MPS_REQ_SIZE);
     len = req.len;
     pbuf = buf;
     // read the real shit
     do {
       rret = recv(socket, pbuf, len, 0);
       if (rret < 0) {
-        mqx_print(ERROR, "reading client socket: %s", strerror(errno));
+        mqx_print(ERROR, "reading from client socket: %s", strerror(errno));
       } else if (rret > 0) {
         pbuf += rret;
         len -= rret;
@@ -222,10 +248,10 @@ void *worker_thread(void *client_socket) {
     // at your service
     switch (req.type) {
       case REQ_GPU_MALLOC: {
-        pbuf = buf;
         void *devPtr;
         size_t size;
         uint32_t flags;
+        pbuf = buf;
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
         pbuf = deserialize_uint32(pbuf, &flags);
         cudaError_t ret = mpsserver_cudaMalloc(&devPtr, size, flags);
@@ -240,7 +266,26 @@ void *worker_thread(void *client_socket) {
         deserialize_uint64(buf, (uint64_t *)&devPtr);
         cudaError_t ret = mpsserver_cudaFree(devPtr);
         serialize_uint32(buf, ret);
-        send(socket, buf, 4, 0);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      case REQ_GPU_MEMCPY_HTOD: {
+        void *dst;
+        deserialize_uint64(buf, (uint64_t *)&dst);
+        int round_size;
+        cudaError_t ret;
+        for (int i = 0; i < req.round; i++) {
+          round_size = i == req.round - 1 ? req.last_len : i * MAX_BUFFER_SIZE;
+          pbuf = buf + i * MAX_BUFFER_SIZE;
+          if (recv_large_buf(socket, pbuf, round_size) != 0) {
+            pthread_exit(NULL);
+          }
+          ret = mpsserver_cudaMemcpy(client, dst, pbuf, round_size, cudaMemcpyHostToDevice);
+          if (ret != cudaSuccess) {
+            break;
+          }
+        }
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
       } break;
       case REQ_GPU_LAUNCH_KERNEL: {
         struct kernel_args kargs;
@@ -258,30 +303,33 @@ void *worker_thread(void *client_socket) {
           ret = cuLaunchKernel(F_simpleAssert,
                 kargs.blocks_per_grid, 1, 1,
                 kargs.threads_per_block, 1, 1,
-                0, cl->stream, (void **)&(kargs.arg_info[1]), 0);
+                0, client->stream, (void **)&(kargs.arg_info[1]), 0);
         } else {
           mqx_print(DEBUG, "%s[%d]<<<%d, %d>>>(%zu args)", fname_table[kargs.function_index], kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
           ret = cuLaunchKernel(fsym_table[kargs.function_index],
                 kargs.blocks_per_grid, 1, 1,
                 kargs.threads_per_block, 1, 1,
-                0, cl->stream, (void **)&(kargs.arg_info[1]), 0);
+                0, client->stream, (void **)&(kargs.arg_info[1]), 0);
         }
         serialize_uint32(buf, ret);
         send(socket, buf, 4, 0);
       } break;
       default:
-        mqx_print(FATAL, "no such type: %d", req.type);
+        mqx_print(FATAL, "type not implemented: %d", req.type);
         goto finish;
     }
   }
 
 finish:
-  pthread_mutex_lock(&pglobal->mps_lock);
+  pthread_mutex_lock(&pglobal->client_mutex);
   pglobal->mps_nclients -= 1;
   pglobal->mps_clients_bitmap &= ~(1 << client_id);
-  cl->id = -1;
-  checkCudaErrors(cuStreamDestroy(cl->stream));
-  pthread_mutex_unlock(&pglobal->mps_lock);
+  client->id = -1;
+  checkCudaErrors(cuStreamDestroy(client->stream));
+  dma_channel_destroy(&client->dma_htod);
+  dma_channel_destroy(&client->dma_dtoh);
+  pthread_mutex_destroy(&client->dma_mutex);
+  pthread_mutex_unlock(&pglobal->client_mutex);
 
   free(client_socket);
   close(socket);

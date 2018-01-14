@@ -42,25 +42,25 @@ depend : .depend
 %.c: ;
 
 mpsserver : mpsserver.o common.o serialize.o libmpsserver.o
-	$(NVCC) -cudart=static -lcuda -arch=sm_61 $^ -o $@
+	$(NVCC) -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
-	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
 
-libmps.so: libmpsclient.o serialize.o common.o mps_interfaces.o
+libmps.so: mps_interfaces.o libmpsclient.o serialize.o common.o
 	$(CC) -g -Wall -shared -pthread -ldl -lcuda -DMQX_PRINT_LEVEL=5  -I$(CUDAPATH)/include $^ -o $@
 
 mps_testclient : mps_testclient.o serialize.o common.o
 	$(NVCC) -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -lrt -ldl -lpthread -arch=sm_61 $^ -o $@
 
 mps_testclient.o: mps_testclient.c
-	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=5 $< -o $@
+	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=5 $^ -o $@
 
 mqxctl : mqxctl.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@
 
-mqxctl.o : mqxctl.c common.h protocol.h spinlock.h list.h atomic.h
-	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
+mqxctl.o : mqxctl.c
+	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
 
 libmqx.so: $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) -o $@

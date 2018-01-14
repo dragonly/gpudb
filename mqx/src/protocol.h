@@ -25,26 +25,37 @@
 #ifndef _MQX_PROTOCOL_H_
 #define _MQX_PROTOCOL_H_
 
+#include <unistd.h>
+#include <stdint.h>
+#include <cuda_runtime_api.h>
+#include <cuda.h>
 #include "atomic.h"
 #include "list.h"
 #include "spinlock.h"
-#include <unistd.h>
-#include <stdint.h>
-#include <cuda.h>
 
 /**
  * MPS related
  */
 #define SERVER_SOCKET_FILE "mqx_mps_server"
-#define MAX_BUFFER_SIZE 8192
+#define MAX_BUFFER_SIZE (1L * 1024L * 1024L)
 
 #define MAX_ARG_SIZE  4096
 #define MAX_ARG_NUM   16
 #define MAX_CLIENTS   32
+#define DMA_NBUF      2
+#define DMA_BUF_SIZE  (1 * 1024L * 1024)
 
+struct mps_dma_channel {
+  uint8_t ibuf;
+  void *stage_buf[DMA_NBUF];
+  cudaEvent_t events[DMA_NBUF];
+};
 struct mps_client {
   uint16_t id;
   CUstream stream;
+  pthread_mutex_t dma_mutex;
+  struct mps_dma_channel dma_htod;
+  struct mps_dma_channel dma_dtoh;
 };
 struct server_stats {
   struct mps_client clients[MAX_CLIENTS];
@@ -61,21 +72,23 @@ struct kernel_args {
   uint16_t function_index;
 };
 
-#define REQ_HOST_MALLOC             0
-#define REQ_GPU_LAUNCH_KERNEL       1
-#define REQ_GPU_MALLOC              2
-#define REQ_GPU_MEMCPY_HTOD_SYNC    3
-#define REQ_GPU_MEMCPY_HTOD_ASYNC   4
-#define REQ_GPU_MEMCPY_DTOH_SYNC    5
-#define REQ_GPU_MEMCPY_DTOH_ASYNC   6
-#define REQ_GPU_SYNC                7
-#define REQ_GPU_MEMFREE             8
-#define REQ_GPU_MEMSET              9
-#define REQ_QUIT                    10
-#define MPS_REQ_SIZE 4
+enum mps_req_t {
+  REQ_HOST_MALLOC = 0,
+  REQ_GPU_LAUNCH_KERNEL,
+  REQ_GPU_MALLOC,
+  REQ_GPU_MEMCPY,
+  REQ_GPU_MEMCPY_HTOD,
+  REQ_GPU_SYNC,
+  REQ_GPU_MEMFREE,
+  REQ_GPU_MEMSET,
+  REQ_QUIT
+};
+#define MPS_REQ_SIZE 16
 struct mps_req {
   uint16_t type;
-  uint16_t len;
+  uint32_t len;
+  uint16_t round; // rounds to send following payload
+  uint64_t last_len; // length of last round of payload
 };
 
 /**
@@ -134,7 +147,7 @@ struct global_context {
   struct mps_client mps_clients[MAX_CLIENTS];
   uint32_t mps_clients_bitmap;
   uint16_t mps_nclients;
-  pthread_mutex_t mps_lock;
+  pthread_mutex_t client_mutex;
   struct list_head allocated_regions;
   pthread_mutex_t alloc_mutex;
   struct list_head attached_regions;

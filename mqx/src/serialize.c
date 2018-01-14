@@ -104,13 +104,17 @@ int kernel_args_bytes(const struct kernel_args kargs) {
 unsigned char* serialize_mps_req(unsigned char *buffer, const struct mps_req req) {
   unsigned char *pbuf = buffer;
   pbuf = serialize_uint16(pbuf, req.type);
-  pbuf = serialize_uint16(pbuf, req.len);
+  pbuf = serialize_uint32(pbuf, req.len);
+  pbuf = serialize_uint16(pbuf, req.round);
+  pbuf = serialize_uint64(pbuf, req.last_len);
   return pbuf;
 }
 unsigned char* deserialize_mps_req(unsigned char* const buffer, struct mps_req *req) {
   unsigned char *pbuf = buffer;
   pbuf = deserialize_uint16(pbuf, &req->type);
-  pbuf = deserialize_uint16(pbuf, &req->len);
+  pbuf = deserialize_uint32(pbuf, &req->len);
+  pbuf = deserialize_uint16(pbuf, &req->round);
+  pbuf = deserialize_uint64(pbuf, &req->last_len);
   return pbuf;
 }
 

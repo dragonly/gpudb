@@ -363,7 +363,7 @@ char *MQX_PRINT_MSG[PRINT_LEVELS] = {
     "S", "F", "E", "W", "I", "D",
 };
 
-static void show_stackframe() {
+void show_stackframe() {
   char **messages = (char **)NULL;
   int i, trace_size = 0;
   void *trace[32];

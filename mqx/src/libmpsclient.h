@@ -24,9 +24,7 @@ int mpsclient_init();
 void mpsclient_destroy();
 cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsclient_cudaFree(void *devPtr);
-cudaError_t mpsclient_cudaMemcpyHtoD(void *dst, const void *src, size_t size);
-cudaError_t mpsclient_cudaMemcpyDtoH(void *dst, const void *src, size_t size);
-cudaError_t mpsclient_cudaMemcpyDtoD(void *dst, const void *src, size_t size);
-cudaError_t mpsclient_cudaMemcpyDefault(void *dst, const void *src, size_t size);
+cudaError_t mpsclient_cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyKind kind);
 cudaError_t mpsclient_cudaLaunchKernel(const void*, dim3, dim3, void**, size_t, cudaStream_t);
+int send_large_buf(int socket, unsigned char *buf, uint32_t size);
 
