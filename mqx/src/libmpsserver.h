@@ -78,10 +78,10 @@ struct mps_region {
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsserver_cudaFree(void *devPtr);
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind);
-cudaError_t mpsserver_cudaAdvise(int iarg, int advice);
-cudaError_t mpsserver_cudaSetFunction(int index);
-cudaError_t mpsserver_cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, CUstream stream);
-cudaError_t mpsserver_cudaSetupArgument(void *arg, size_t size, size_t offset);
+cudaError_t mpsserver_cudaAdvise(struct mps_client *client, int iarg, int advice);
+cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index);
+cudaError_t mpsserver_cudaConfigureCall(struct mps_client *client, dim3 gridDim, dim3 blockDim, size_t sharedMem, CUstream stream);
+cudaError_t mpsserver_cudaSetupArgument(struct mps_client *client, void *arg, size_t size, size_t offset);
 cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client);
 int recv_large_buf(int socket, unsigned char *buf, uint32_t size);
 int dma_channel_init(struct mps_dma_channel *channel, int isHtoD);

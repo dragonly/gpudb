@@ -218,13 +218,17 @@ void *worker_thread(void *client_socket) {
       break;
     }
   }
+  pthread_mutex_unlock(&pglobal->client_mutex);
   struct mps_client *client = &pglobal->mps_clients[client_id];
   client->id = client_id;
   checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
   dma_channel_init(&client->dma_htod, 1);
   dma_channel_init(&client->dma_dtoh, 0);
   pthread_mutex_init(&client->dma_mutex, NULL);
-  pthread_mutex_unlock(&pglobal->client_mutex);
+  client->kconf.ktop = client->kconf.kstack;
+  client->kconf.nargs = 0;
+  client->kconf.nadvices = 0;
+  client->kconf.func_index = -1;
   mqx_print(DEBUG, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id + 1, pglobal->mps_nclients);
   
   int rret;
@@ -337,7 +341,7 @@ void *worker_thread(void *client_socket) {
         uint8_t *pbuf = buf;
         pbuf = deserialize_str(pbuf, &iarg, 1);
         pbuf = deserialize_str(pbuf, &advice, 1);
-        cudaError_t ret = mpsserver_cudaAdvise(iarg, advice);
+        cudaError_t ret = mpsserver_cudaAdvise(client, iarg, advice);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
@@ -345,7 +349,7 @@ void *worker_thread(void *client_socket) {
         uint32_t index;
         uint8_t *pbuf = buf;
         pbuf = deserialize_uint32(pbuf, &index);
-        cudaError_t ret = mpsserver_cudaSetFunction(index);
+        cudaError_t ret = mpsserver_cudaSetFunction(client, index);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
@@ -363,7 +367,7 @@ void *worker_thread(void *client_socket) {
         pbuf = deserialize_uint32(pbuf, &blockDim.z);
         pbuf = deserialize_uint64(pbuf, &sharedMem);
         // TODO: using the only client CUstream for now
-        cudaError_t ret = mpsserver_cudaConfigureCall(gridDim, blockDim, sharedMem, client->stream);
+        cudaError_t ret = mpsserver_cudaConfigureCall(client, gridDim, blockDim, sharedMem, client->stream);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
@@ -378,7 +382,7 @@ void *worker_thread(void *client_socket) {
         parg = malloc(size);
         pbuf = deserialize_str(pbuf, parg, size);
         pbuf = deserialize_uint64(pbuf, &offset);
-        cudaError_t ret = mpsserver_cudaSetupArgument(parg, size, offset);
+        cudaError_t ret = mpsserver_cudaSetupArgument(client, parg, size, offset);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;

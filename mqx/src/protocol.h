@@ -50,12 +50,41 @@ struct mps_dma_channel {
   void *stage_buf[DMA_NBUF];
   cudaEvent_t events[DMA_NBUF];
 };
+struct mps_karg_dptr_arg {
+  struct mps_region *rgn;  // The region this argument points to
+  uint64_t offset;         // Device pointer offset in the region
+  uint32_t advice;         // Access advices
+};
+struct mps_karg {
+  char is_dptr;
+  union {
+    struct mps_karg_dptr_arg dptr;
+    void *ndptr;
+  };
+  size_t size;
+  size_t argoff;
+};
+#define MAX_ARGS 32
+struct client_kernel_conf {
+  dim3 gridDim;
+  dim3 blockDim;
+  size_t sharedMem;
+  uint8_t kstack[512];  // for primitive args
+  void *ktop;
+  struct mps_karg kargs[MAX_ARGS];
+  uint32_t nargs;
+  uint32_t advice_index[MAX_ARGS];
+  uint32_t advices[MAX_ARGS];
+  uint32_t nadvices;
+  int32_t func_index;
+};
 struct mps_client {
   uint16_t id;
   CUstream stream;
   pthread_mutex_t dma_mutex;
   struct mps_dma_channel dma_htod;
   struct mps_dma_channel dma_dtoh;
+  struct client_kernel_conf kconf;  // per-client kernel configurations
 };
 struct server_stats {
   struct mps_client clients[MAX_CLIENTS];

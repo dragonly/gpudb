@@ -21,7 +21,7 @@ static void add_allocated_region(struct mps_region*);
 static void remove_allocated_region(struct mps_region *rgn);
 static void add_attached_region(struct mps_region*);
 static void remove_attached_region(struct mps_region *rgn);
-static uint64_t fetch_and_mark_regions(struct mps_region ***prgns, uint32_t *pnrgns);
+static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_region ***prgns, uint32_t *pnrgns);
 static cudaError_t free_region(struct mps_region*);
 static cudaError_t attach_regions(struct mps_region **rgns, uint32_t nrgns);
 static cudaError_t attach_region(struct mps_region *rgn);
@@ -108,51 +108,26 @@ cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src
   return cudaErrorInvalidMemcpyDirection;
 }
 
-struct mps_karg_dptr_arg {
-  struct mps_region *rgn;  // The region this argument points to
-  uint64_t offset;         // Device pointer offset in the region
-  uint32_t advice;         // Access advices
-};
-struct mps_karg {
-  char is_dptr;
-  union {
-    struct mps_karg_dptr_arg dptr;
-    void *ndptr;
-  };
-  size_t size;
-  size_t argoff;
-};
-#define MAX_ARGS 32
-static dim3 gridDim;
-static dim3 blockDim;
-static size_t sharedMem;
-static unsigned char kstack[512];   // Temporary kernel argument stack
-static void *ktop = (void *)kstack; // Stack top
-static struct mps_karg kargs[MAX_ARGS];
-static int nargs = 0;
-static volatile int advice_index[MAX_ARGS];
-static volatile int advices[MAX_ARGS];
-static volatile int nadvices = 0;
-static volatile int func_index= -1;
-cudaError_t mpsserver_cudaSetFunction(int index) {
-  func_index = index;
+cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index) {
+  client->kconf.func_index = index;
   return cudaSuccess;
 }
-cudaError_t mpsserver_cudaAdvise(int iarg, int advice) {
+cudaError_t mpsserver_cudaAdvise(struct mps_client *client, int iarg, int advice) {
   int i;
+  struct client_kernel_conf *kconf = &client->kconf;
   mqx_print(DEBUG, "cudaAdvise: %d %d", iarg, advice);
 
   if (iarg >= 0 && iarg < MAX_ARGS) {
-    for (i = 0; i < nadvices; i++) {
-      if (advice_index[i] == iarg)
+    for (i = 0; i < kconf->nadvices; i++) {
+      if (kconf->advice_index[i] == iarg)
         break;
     }
-    if (i == nadvices) {
-      advice_index[nadvices] = iarg;
-      advices[nadvices] = advice;
-      nadvices++;
+    if (i == kconf->nadvices) {
+      kconf->advice_index[kconf->nadvices] = iarg;
+      kconf->advices[kconf->nadvices] = advice;
+      kconf->nadvices++;
     } else {
-      advices[i] |= advice;
+      kconf->advices[i] |= advice;
     }
   } else {
     mqx_print(ERROR, "max cudaAdvise argument exceeded(%d)", iarg);
@@ -160,37 +135,39 @@ cudaError_t mpsserver_cudaAdvise(int iarg, int advice) {
   }
   return cudaSuccess;
 }
-cudaError_t mpsserver_cudaConfigureCall(dim3 gDim, dim3 bDim, size_t shMem, CUstream stream) {
+cudaError_t mpsserver_cudaConfigureCall(struct mps_client *client, dim3 gDim, dim3 bDim, size_t shMem, CUstream stream) {
+  struct client_kernel_conf *kconf = &client->kconf;
   mqx_print(DEBUG, "cudaConfigureCall: <<<(%d %d %d), (%d %d %d), %lu, %p>>>", gDim.x, gDim.y, gDim.z, bDim.x, bDim.y, bDim.z, shMem, stream);
-  nargs = 0;
-  ktop = (void *)kstack;
-  gridDim = gDim;
-  blockDim = bDim;
-  sharedMem = shMem;
+  kconf->nargs = 0;
+  kconf->ktop = (void *)kconf->kstack;
+  kconf->gridDim = gDim;
+  kconf->blockDim = bDim;
+  kconf->sharedMem = shMem;
   // TODO: use custom stream
   return cudaSuccess;
 }
-cudaError_t mpsserver_cudaSetupArgument(void *parg, size_t size, size_t offset) {
+cudaError_t mpsserver_cudaSetupArgument(struct mps_client *client, void *parg, size_t size, size_t offset) {
   struct mps_region *rgn;
   uint8_t is_dptr = 0;
   uint32_t iadv = 0;
-  mqx_print(DEBUG, "cudaSetupArgument %d: size(%lu) offset(%lu)", nargs, size, offset);
+  struct client_kernel_conf *kconf = &client->kconf;
+  mqx_print(DEBUG, "cudaSetupArgument %d: size(%lu) offset(%lu)", kconf->nargs, size, offset);
 
   // FIXME: this is buggy, because in this setting, any primitive arguments must NOT be `cudaAdvise`d
-  if (nadvices > 0) {
-    for (iadv = 0; iadv < nadvices; iadv++) {
-      if (advice_index[iadv] == nargs) {
+  if (kconf->nadvices > 0) {
+    for (iadv = 0; iadv < kconf->nadvices; iadv++) {
+      if (kconf->advice_index[iadv] == kconf->nargs) {
         break;
       }
     }
-    if (iadv < nadvices) {
+    if (iadv < kconf->nadvices) {
       if (size != sizeof(void *)) {
-        mqx_print(ERROR, "cudaSetupArgument (%d): Argument size (%lu) does not match size of dptr", nargs, size);
+        mqx_print(ERROR, "cudaSetupArgument (%d): Argument size (%lu) does not match size of dptr", kconf->nargs, size);
         return cudaErrorInvalidValue;
       }
       rgn = find_allocated_region(pglobal, *(void **)parg);
       if (!rgn) {
-        mqx_print(ERROR, "cudaSetupArgument (%d): Cannot find region containing %p", nargs, parg);
+        mqx_print(ERROR, "cudaSetupArgument (%d): Cannot find region containing %p", kconf->nargs, parg);
         return cudaErrorInvalidValue;
       }
       is_dptr = 1;
@@ -204,27 +181,27 @@ cudaError_t mpsserver_cudaSetupArgument(void *parg, size_t size, size_t offset) 
   }
 
   if (is_dptr) {
-    kargs[nargs].dptr.rgn = rgn;
-    kargs[nargs].dptr.offset = (unsigned long)(*(void **)parg - rgn->swap_addr);
-    if (nadvices > 0) {
-      kargs[nargs].dptr.advice = advices[iadv];
+    kconf->kargs[kconf->nargs].dptr.rgn = rgn;
+    kconf->kargs[kconf->nargs].dptr.offset = (unsigned long)(*(void **)parg - rgn->swap_addr);
+    if (kconf->nadvices > 0) {
+      kconf->kargs[kconf->nargs].dptr.advice = kconf->advices[iadv];
     } else {
-      kargs[nargs].dptr.advice = CADV_DEFAULT | CADV_PTADEFAULT;
+      kconf->kargs[kconf->nargs].dptr.advice = CADV_DEFAULT | CADV_PTADEFAULT;
     }
     mqx_print_region(DEBUG, rgn, "argument is dptr");
   } else {
     // This argument is not a device memory pointer.
     // XXX: Currently we ignore the case that CUDA runtime might
     // stop pushing arguments due to some errors.
-    memcpy(ktop, parg, size);
-    kargs[nargs].ndptr = ktop;
-    ktop += size;
+    memcpy(kconf->ktop, parg, size);
+    kconf->kargs[kconf->nargs].ndptr = kconf->ktop;
+    kconf->ktop += size;
   }
-  kargs[nargs].is_dptr = is_dptr;
-  kargs[nargs].size = size;
+  kconf->kargs[kconf->nargs].is_dptr = is_dptr;
+  kconf->kargs[kconf->nargs].size = size;
   // NOTE: argoff is not used, because cudaSetupArgument somehow think a uint64 following a uint32 should have a `8` offset from the former argument, which is wierd for cuLaunchKernel
-  kargs[nargs].argoff = -1; 
-  nargs++;
+  kconf->kargs[kconf->nargs].argoff = -1; 
+  kconf->nargs++;
   free(parg);
   return cudaSuccess;
 }
@@ -234,6 +211,7 @@ struct kernel_callback {
   uint32_t nrgns;
 };
 cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client) {
+  struct client_kernel_conf *kconf = &client->kconf;
   cudaError_t ret = cudaSuccess;
   struct mps_region **rgns = NULL;
   uint32_t nrgns = 0;
@@ -242,7 +220,7 @@ cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client) {
 
   // nrgns can be 0 for some kernels only using registers
   // advices are marked on regions
-  gpumem_required = fetch_and_mark_regions(&rgns, &nrgns);
+  gpumem_required = fetch_and_mark_regions(client, &rgns, &nrgns);
   if (gpumem_required < 0) {
     mqx_print(ERROR, "cudaLaunch: failed to get required regions");
     ret = cudaErrorUnknown;
@@ -272,11 +250,11 @@ attach:
     goto launch_fail;
   }
 
-  CUfunction kernel = fsym_table[func_index];
-  if (func_index == 233) {
+  CUfunction kernel = fsym_table[kconf->func_index];
+  if (kconf->func_index == 233) {
     kernel = F_vectorAdd;
   }
-  ASSERT(kernel != NULL, "null function %s (%d)", fname_table[func_index], func_index);
+  ASSERT(kernel != NULL, "null function %s (%d)", fname_table[kconf->func_index], kconf->func_index);
   ASSERT(nrgns < MAX_ARGS, "nrgns(%d) >= MAX_ARGS(%d)", nrgns, MAX_ARGS);
   struct kernel_callback *kcb;
   kcb = (struct kernel_callback *)calloc(1, sizeof(struct kernel_callback));
@@ -295,22 +273,22 @@ attach:
   kcb->nrgns = nrgns;
 
   cudaError_t cret;
-  uint8_t *kernel_args_buf = malloc(sizeof(void *) * nargs);
-  void **kernel_args_ptr = malloc(sizeof(void *) * nargs);
+  uint8_t *kernel_args_buf = malloc(sizeof(void *) * kconf->nargs);
+  void **kernel_args_ptr = malloc(sizeof(void *) * kconf->nargs);
   uint32_t offset = 0;
-  for (int i = 0; i < nargs; i++) {
-    if (kargs[i].is_dptr) {
+  for (int i = 0; i < kconf->nargs; i++) {
+    if (kconf->kargs[i].is_dptr) {
       // this should copy the dptr
-      memcpy(kernel_args_buf + offset, &kargs[i].dptr.rgn->gpu_addr, kargs[i].size);
+      memcpy(kernel_args_buf + offset, &kconf->kargs[i].dptr.rgn->gpu_addr, kconf->kargs[i].size);
     } else {
       // and this should copy the value pointed by ndptr
-      memcpy(kernel_args_buf + offset, kargs[i].ndptr, kargs[i].size);
+      memcpy(kernel_args_buf + offset, kconf->kargs[i].ndptr, kconf->kargs[i].size);
     }
     *((void **)kernel_args_ptr + i) = kernel_args_buf + offset;
-    offset += kargs[i].size;
+    offset += kconf->kargs[i].size;
   }
   checkCudaErrors(cuStreamSynchronize(client->stream));
-  if ((cret = cuLaunchKernel(kernel, gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, sharedMem, client->stream, kernel_args_ptr, 0)) != cudaSuccess) {
+  if ((cret = cuLaunchKernel(kernel, kconf->gridDim.x, kconf->gridDim.y, kconf->gridDim.z, kconf->blockDim.x, kconf->blockDim.y, kconf->blockDim.z, kconf->sharedMem, client->stream, kernel_args_ptr, 0)) != cudaSuccess) {
     mqx_print(FATAL, "cuLaunchKernel failed: %s(%d)", cudaGetErrorString(cret), cret);
     for (int i = 0; i < nrgns; i++) {
       if (kcb->advices[i] & CADV_OUTPUT) {
@@ -334,8 +312,8 @@ attach:
   free(kernel_args_buf);
   free(kernel_args_ptr);
   pthread_mutex_unlock(&pglobal->kernel_launch_mutex);
-  if (func_index != 233) {
-    mqx_print(DEBUG, "launch kernel <%s> succeeded", fname_table[func_index]);
+  if (kconf->func_index != 233) {
+    mqx_print(DEBUG, "launch kernel <%s> succeeded", fname_table[kconf->func_index]);
   } else {
     mqx_print(DEBUG, "launch kernel <vectorAdd> succeeded");
   }
@@ -344,10 +322,10 @@ launch_fail:
   if (rgns) {
     free(rgns);
   }
-  func_index = -1;
-  nadvices = 0;
-  nargs = 0;
-  ktop = (void *)kstack;
+  kconf->func_index = -1;
+  kconf->nadvices = 0;
+  kconf->nargs = 0;
+  kconf->ktop = (void *)kconf->kstack;
   return ret;
 }
 static cudaError_t load_regions(struct mps_client *client, struct mps_region **rgns, uint32_t nrgns) {
@@ -580,17 +558,18 @@ static struct mps_region *find_allocated_region(struct global_context *pglobal, 
   else
     return NULL;
 }
-static uint64_t fetch_and_mark_regions(struct mps_region ***prgns, uint32_t *pnrgns) {
+static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_region ***prgns, uint32_t *pnrgns) {
+  struct client_kernel_conf *kconf = &client->kconf;
   struct mps_region **rgns, *rgn;
   uint32_t nrgns = 0;
-  ASSERT(nadvices >= 0 && nadvices <= MAX_ARGS, "invalid number of advices(%d)", nadvices);
-  ASSERT(nargs >= 0 && nargs <= MAX_ARGS, "invalid number of arguments(%d)", nargs);
+  ASSERT(kconf->nadvices >= 0 && kconf->nadvices <= MAX_ARGS, "invalid number of advices(%d)", kconf->nadvices);
+  ASSERT(kconf->nargs >= 0 && kconf->nargs <= MAX_ARGS, "invalid number of arguments(%d)", kconf->nargs);
 
   // get upper bound of unique regions number
-  for (int i = 0; i < nargs; i++) {
-    if (kargs[i].is_dptr) {
+  for (int i = 0; i < kconf->nargs; i++) {
+    if (kconf->kargs[i].is_dptr) {
       nrgns++;
-      rgn = kargs[i].dptr.rgn;
+      rgn = kconf->kargs[i].dptr.rgn;
       if (rgn->flags & FLAG_PTARRAY) {
         nrgns += rgn->size / sizeof(void *);
       }
@@ -602,17 +581,17 @@ static uint64_t fetch_and_mark_regions(struct mps_region ***prgns, uint32_t *pnr
   // fetch and mark unique referenced regions
   nrgns = 0;
   uint64_t mem_total = 0;
-  for (int i = 0; i < nargs; i++) {
-    if (kargs[i].is_dptr) {
-      rgn = kargs[i].dptr.rgn;
+  for (int i = 0; i < kconf->nargs; i++) {
+    if (kconf->kargs[i].is_dptr) {
+      rgn = kconf->kargs[i].dptr.rgn;
       if (!contains_ptr((const void **)rgns, nrgns, (const void *)rgn)) {
-        mqx_print_region(DEBUG, rgn, "new referenced region, offset(%zu)", kargs[i].dptr.offset);
-        rgn->advice = kargs[i].dptr.advice & CADV_MASK;
+        mqx_print_region(DEBUG, rgn, "new referenced region, offset(%zu)", kconf->kargs[i].dptr.offset);
+        rgn->advice = kconf->kargs[i].dptr.advice & CADV_MASK;
         rgns[nrgns++] = rgn;
         mem_total += rgn->size;
       } else {
-        mqx_print_region(DEBUG, rgn, "re-referenced region, offset(%zu)", kargs[i].dptr.offset);
-        rgn->advice |= kargs[i].dptr.advice & CADV_MASK;
+        mqx_print_region(DEBUG, rgn, "re-referenced region, offset(%zu)", kconf->kargs[i].dptr.offset);
+        rgn->advice |= kconf->kargs[i].dptr.advice & CADV_MASK;
       }
 
       if (rgn->flags & FLAG_PTARRAY) {
