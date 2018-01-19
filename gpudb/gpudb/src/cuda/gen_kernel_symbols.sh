@@ -7,7 +7,7 @@ function gen_h() {
   echo
   n=`cuobjdump -symbols ops.cubin | grep -v "STB_LOCAL" | grep "STO_ENTRY" | wc -l`
   echo "#define NUMFUNC $n"
-  echo "static CUfunction fsym_table[NUMFUNC] = { NULL };"
+  echo "CUfunction fsym_table[NUMFUNC];"
   #echo
   #cuobjdump -symbols ops.cubin | grep -v "STB_LOCAL" | grep "STO_ENTRY" | awk '{print $4}' | sort | awk '{print "fsym_table["NR-1"] = &F_" $1 ";"}'
   echo

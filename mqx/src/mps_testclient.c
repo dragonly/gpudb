@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
   }
 
   struct mps_req req;
-  req.type = REQ_GPU_LAUNCH_KERNEL;
+  req.type = REQ_TEST_CUDA_LAUNCH_KERNEL;
 
   struct kernel_args kargs;
   kargs.arg_info[0] = (void *)3;

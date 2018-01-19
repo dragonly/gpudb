@@ -21,6 +21,8 @@
 
 // For the CUDA runtime routines (prefixed with "cuda_")
 #include <cuda_runtime.h>
+#include <stdint.h>
+#include "mqx.h"
 
 /**
  * CUDA Kernel Device code
@@ -29,13 +31,19 @@
  * number of elements numElements.
  */
 extern "C" __global__ void
-vectorAdd(const float *A, const float *B, float *C, int numElements)
+vectorAdd(uint32_t numElements, const float *A, const float *B, float *C)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i == 0) {
+      printf("%u %p %p %p\n", numElements, A, B, C);
+      printf("%f %f %f\n", A[0], B[0], C[0]);
+    }
 
     if (i < numElements)
     {
         C[i] = A[i] + B[i];
+    } else {
+//      printf("%s\n", __func__);
     }
 }
 
@@ -49,7 +57,7 @@ main(void)
     cudaError_t err = cudaSuccess;
 
     // Print the vector length to be used, and compute its size
-    int numElements = 50000;
+    uint32_t numElements = 50000000;
     size_t size = numElements * sizeof(float);
     printf("[Vector addition of %d elements]\n", numElements);
 
@@ -129,7 +137,8 @@ main(void)
     int threadsPerBlock = 256;
     int blocksPerGrid =(numElements + threadsPerBlock - 1) / threadsPerBlock;
     printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
-    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, numElements);
+    cudaSetFunction(233);
+    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(numElements, d_A, d_B, d_C);
     err = cudaGetLastError();
 
     if (err != cudaSuccess)
@@ -152,9 +161,12 @@ main(void)
     // Verify that the result vector is correct
     for (int i = 0; i < numElements; ++i)
     {
-        if (fabs(h_A[i] + h_B[i] - h_C[i]) > 1e-5)
+      float diff;
+        if ((diff = fabs(h_A[i] + h_B[i] - h_C[i])) > 1e-5)
         {
-            fprintf(stderr, "Result verification failed at element %d!\n", i);
+          if (i == 0) {
+            fprintf(stderr, "Result verification failed at element %d! A(%f) B(%f) C(%f) diff(%f)\n", i, h_A[i], h_B[i], h_C[i], diff);
+          }
             exit(EXIT_FAILURE);
         }
     }

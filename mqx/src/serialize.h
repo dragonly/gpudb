@@ -23,18 +23,18 @@
 #define __SERIALIZE_H_
 #include <stdint.h>
 
-unsigned char* serialize_uint16(unsigned char*, const uint16_t);
-unsigned char* deserialize_uint16(unsigned char*, uint16_t*);
-unsigned char* serialize_uint32(unsigned char*, const uint32_t);
-unsigned char* deserialize_uint32(unsigned char* const, uint32_t*);
-unsigned char* serialize_uint64(unsigned char*, const uint64_t);
-unsigned char* deserialize_uint64(unsigned char* const, uint64_t*);
-unsigned char* serialize_str(unsigned char*, const char* const, int);
-unsigned char* deserialize_str(unsigned char* const, char*, int);
-unsigned char* serialize_kernel_args(unsigned char*, const struct kernel_args);
-unsigned char* deserialize_kernel_args(unsigned char* const, struct kernel_args*);
+uint8_t* serialize_uint16(uint8_t*, const uint16_t);
+uint8_t* deserialize_uint16(uint8_t*, uint16_t*);
+uint8_t* serialize_uint32(uint8_t*, const uint32_t);
+uint8_t* deserialize_uint32(uint8_t* const, uint32_t*);
+uint8_t* serialize_uint64(uint8_t*, const uint64_t);
+uint8_t* deserialize_uint64(uint8_t* const, uint64_t*);
+uint8_t* serialize_str(uint8_t*, const uint8_t* const, int);
+uint8_t* deserialize_str(uint8_t* const, uint8_t*, int);
+uint8_t* serialize_kernel_args(uint8_t*, const struct kernel_args);
+uint8_t* deserialize_kernel_args(uint8_t* const, struct kernel_args*);
+uint8_t* serialize_mps_req(uint8_t*, const struct mps_req);
+uint8_t* deserialize_mps_req(uint8_t* const, struct mps_req*);
 int kernel_args_bytes(const struct kernel_args);
-unsigned char* serialize_mps_req(unsigned char*, const struct mps_req);
-unsigned char* deserialize_mps_req(unsigned char* const, struct mps_req*);
 #endif
 

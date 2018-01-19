@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Yilong Li <liyilongko@gmail.com>
+ * Copyright (c) 2017-2018 Yilong Li <liyilongko@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,17 +19,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-int mpsclient_init();
-void mpsclient_destroy();
-cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
-cudaError_t mpsclient_cudaFree(void *devPtr);
-cudaError_t mpsclient_cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyKind kind);
-cudaError_t mpsclient_cudaAdvise(int iarg, int advice);
-cudaError_t mpsclient_cudaSetFunction(int index);
-cudaError_t mpsclient_cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream);
-cudaError_t mpsclient_cudaSetupArgument(const void *arg, size_t size, size_t offset);
-cudaError_t mpsclient_cudaLaunch(const void *func);
-cudaError_t mpsclient_cudaLaunchKernel(const void*, dim3, dim3, void**, size_t, cudaStream_t);
+#ifndef _LIBMPS_H_
+#define _LIBMPS_H_
 int send_large_buf(int socket, unsigned char *buf, uint32_t size);
+int recv_large_buf(int socket, unsigned char *buf, uint32_t size);
+#endif
 

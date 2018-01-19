@@ -38,6 +38,7 @@
 #include "kernel_symbols.h"
 #include "serialize.h"
 #include "libmpsserver.h"
+#include "libmps.h"
 #include "list.h"
 
 const char *mod_file_name = "ops.cubin";
@@ -45,7 +46,7 @@ static CUcontext cudaContext;
 static CUmodule mod_ops;
 
 static CUmodule test_mod_ops;
-static CUfunction F_simpleAssert;
+CUfunction F_vectorAdd;
 
 int initCUDA() {
   int device_count = 0;
@@ -67,9 +68,11 @@ int initCUDA() {
   
   mqx_print(DEBUG, "loading functions from cubin module");
 
-  // load test module: simpleAssert.cubin
-  checkCudaErrors(cuModuleLoad(&test_mod_ops, "simpleAssert.cubin"));
-  checkCudaErrors(cuModuleGetFunction(&F_simpleAssert, test_mod_ops, "testKernel"));
+  // load test module: vectorAdd.cubin
+  // NOTE: CUDA_ERROR_INVALID_SOURCE indicates that no -arch=sm_xx provided
+  checkCudaErrors(cuModuleLoad(&test_mod_ops, "vectorAdd.cubin"));
+  checkCudaErrors(cuModuleGetFunction(&F_vectorAdd, test_mod_ops, "vectorAdd"));
+  mqx_print(DEBUG, "vectorAdd: %p", F_vectorAdd);
 
   // load the real shit
   checkCudaErrors(cuModuleLoad(&mod_ops, mod_file_name));
@@ -100,16 +103,19 @@ int main(int argc, char **argv) {
   //mqx_print(DEBUG, "early exit for debugging");
   //exit(0);
 
+  mqx_print(DEBUG, "opening shared memory");
   shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR, 0);
   if (shmfd == -1) {
     mqx_print(FATAL, "Failed to open shared memory: %s.", strerror(errno));
       goto fail_shm;
   }
+  mqx_print(DEBUG, "mmaping global context");
   pglobal = (struct global_context *)mmap(NULL /* address */, sizeof(struct global_context), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0 /* offset */);
   if (pglobal == MAP_FAILED) {
     mqx_print(FATAL, "Failed to mmap shared memory: %s.", strerror(errno));
     goto fail_mmap;
   }
+  mqx_print(DEBUG, "initializing global context");
   memset(pglobal->mps_clients, 0, sizeof(struct mps_client) * MAX_CLIENTS);
   for (int i = 0; i < MAX_CLIENTS; i++) {
     pglobal->mps_clients[i].id = -1;
@@ -118,6 +124,7 @@ int main(int argc, char **argv) {
   pglobal->mps_nclients = 0;
   pthread_mutex_init(&pglobal->client_mutex, NULL);
   pthread_mutex_init(&pglobal->alloc_mutex, NULL);
+  pthread_mutex_init(&pglobal->kernel_launch_mutex, NULL);
   INIT_LIST_HEAD(&pglobal->allocated_regions);
   INIT_LIST_HEAD(&pglobal->attached_regions);
 
@@ -127,6 +134,7 @@ int main(int argc, char **argv) {
   signal(SIGINT, sigint_handler);
   signal(SIGKILL, sigint_handler);
 
+  mqx_print(DEBUG, "initializing server socket");
   server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socket < 0) {
     mqx_print(DEBUG, "opening server socket: %s", strerror(errno));
@@ -135,11 +143,12 @@ int main(int argc, char **argv) {
   server.sun_family = AF_UNIX;
   strcpy(server.sun_path, SERVER_SOCKET_FILE);
   if (bind(server_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
-    mqx_print(DEBUG, "binding server socket: %s", strerror(errno));
+    mqx_print(FATAL, "binding server socket: %s", strerror(errno));
     goto fail_bind;
   }
   listen(server_socket, 128);
 
+  mqx_print(DEBUG, "accepting client sockets");
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);
@@ -170,6 +179,7 @@ int main(int argc, char **argv) {
   pglobal->mps_nclients = 0;
   pthread_mutex_destroy(&pglobal->client_mutex);
   pthread_mutex_destroy(&pglobal->alloc_mutex);
+  pthread_mutex_destroy(&pglobal->kernel_launch_mutex);
   struct list_head *pos;
   struct mps_region *rgn;
   list_for_each(pos, &pglobal->allocated_regions) {
@@ -193,6 +203,7 @@ fail_cuda:
   checkCudaErrors(cuCtxDestroy(cudaContext));
 }
 
+// TODO: support cuda program using multiple streams
 void *worker_thread(void *client_socket) {
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
 
@@ -214,7 +225,7 @@ void *worker_thread(void *client_socket) {
   dma_channel_init(&client->dma_dtoh, 0);
   pthread_mutex_init(&client->dma_mutex, NULL);
   pthread_mutex_unlock(&pglobal->client_mutex);
-  mqx_print(DEBUG, "worker thread created (%d/%d)", client_id, pglobal->mps_nclients);
+  mqx_print(DEBUG, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id + 1, pglobal->mps_nclients);
   
   int rret;
   int socket = *(int *)client_socket;
@@ -236,18 +247,21 @@ void *worker_thread(void *client_socket) {
     len = req.len;
     pbuf = buf;
     // read the real shit
-    do {
-      rret = recv(socket, pbuf, len, 0);
-      if (rret < 0) {
-        mqx_print(ERROR, "reading from client socket: %s", strerror(errno));
-      } else if (rret > 0) {
-        pbuf += rret;
-        len -= rret;
-      };
-    } while (len > 0);
+    if (len > 0) {
+      do {
+        rret = recv(socket, pbuf, len, 0);
+        if (rret < 0) {
+          mqx_print(ERROR, "reading from client socket: %s", strerror(errno));
+          goto finish;
+        } else if (rret > 0) {
+          pbuf += rret;
+          len -= rret;
+        };
+      } while (len > 0);
+    }
     // at your service
     switch (req.type) {
-      case REQ_GPU_MALLOC: {
+      case REQ_CUDA_MALLOC: {
         void *devPtr;
         size_t size;
         uint32_t flags;
@@ -256,38 +270,124 @@ void *worker_thread(void *client_socket) {
         pbuf = deserialize_uint32(pbuf, &flags);
         cudaError_t ret = mpsserver_cudaMalloc(&devPtr, size, flags);
         pbuf = buf;
-        pbuf = serialize_uint32(pbuf, ret);
         pbuf = serialize_uint64(pbuf, (uint64_t)devPtr);
-        mqx_print(DEBUG, "server cudaMalloc: devPtr(%p), ret(%d)", devPtr, ret);
-        send(socket, buf, 4+8, 0);
+        pbuf = serialize_uint32(pbuf, ret);
+        mqx_print(DEBUG, "cudaMalloc: devPtr(%p) size(%zu) ret(%d)", devPtr, size, ret);
+        send(socket, buf, sizeof(devPtr) + sizeof(ret), 0);
       } break;
-      case REQ_GPU_MEMFREE: {
+      case REQ_CUDA_MEMFREE: {
         void *devPtr;
         deserialize_uint64(buf, (uint64_t *)&devPtr);
         cudaError_t ret = mpsserver_cudaFree(devPtr);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
-      case REQ_GPU_MEMCPY_HTOD: {
-        void *dst;
+      case REQ_CUDA_MEMCPY_HTOD: {
+        void *dst;  // swap addr
         deserialize_uint64(buf, (uint64_t *)&dst);
         int round_size;
         cudaError_t ret;
+        // FIXME: bug resides in multi-round situations
+        mqx_print(DEBUG, "starting a (%lu bytes/%d round) Host->Swap memcpy", (req.round-1)*MAX_BUFFER_SIZE+req.last_len, req.round);
         for (int i = 0; i < req.round; i++) {
           round_size = i == req.round - 1 ? req.last_len : i * MAX_BUFFER_SIZE;
-          pbuf = buf + i * MAX_BUFFER_SIZE;
-          if (recv_large_buf(socket, pbuf, round_size) != 0) {
+          if (recv_large_buf(socket, buf, round_size) != 0) {
             pthread_exit(NULL);
           }
-          ret = mpsserver_cudaMemcpy(client, dst, pbuf, round_size, cudaMemcpyHostToDevice);
+          ret = mpsserver_cudaMemcpy(client, dst + i * MAX_BUFFER_SIZE, buf, round_size, cudaMemcpyHostToDevice);
           if (ret != cudaSuccess) {
+            mqx_print(ERROR, "mpsserver_cudaMemcpy: HtoD failed");
             break;
+          }
+        }
+        //uint64_t size = (req.round - 1) * MAX_BUFFER_SIZE + req.last_len;
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      // not implemented yet
+      case REQ_CUDA_MEMCPY_DTOH: {
+        void *src;  // swap addr
+        deserialize_uint64(buf, (uint64_t *)&src);
+        int round_size;
+        cudaError_t ret;
+        mqx_print(DEBUG, "starting a (%lu bytes/%d round) Device->Host memcpy", (req.round-1)*MAX_BUFFER_SIZE+req.last_len, req.round);
+        for (int i = 0; i < req.round; i++) {
+          round_size = i == req.round - 1 ? req.last_len : i * MAX_BUFFER_SIZE;
+          ret = mpsserver_cudaMemcpy(client, buf, src + i * MAX_BUFFER_SIZE, round_size, cudaMemcpyDeviceToHost);
+          if (ret != cudaSuccess) {
+            mqx_print(ERROR, "mpsserver_cudaMemcpy: DtoH failed");
+            break;
+          }
+          if (send_large_buf(socket, buf, round_size) != 0) {
+            pthread_exit(NULL);
           }
         }
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
-      case REQ_GPU_LAUNCH_KERNEL: {
+      case REQ_CUDA_MEMCPY_DTOD:
+      case REQ_CUDA_MEMCPY_HTOH:
+      case REQ_CUDA_MEMCPY_DEFAULT: {
+        serialize_uint32(buf, cudaErrorNotYetImplemented);
+        send(socket, buf, sizeof(cudaError_t), 0);
+      } break;
+      case REQ_CUDA_ADVISE: {
+        uint8_t iarg;
+        uint8_t advice;
+        uint8_t *pbuf = buf;
+        pbuf = deserialize_str(pbuf, &iarg, 1);
+        pbuf = deserialize_str(pbuf, &advice, 1);
+        cudaError_t ret = mpsserver_cudaAdvise(iarg, advice);
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      case REQ_SET_KERNEL_FUNCTION: {
+        uint32_t index;
+        uint8_t *pbuf = buf;
+        pbuf = deserialize_uint32(pbuf, &index);
+        cudaError_t ret = mpsserver_cudaSetFunction(index);
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      case REQ_CUDA_CONFIGURE_CALL: {
+        dim3 gridDim;
+        dim3 blockDim;
+        size_t sharedMem;
+        // TODO: maintain a client-side stream ptr -> id map
+        uint8_t *pbuf = buf;
+        pbuf = deserialize_uint32(pbuf, &gridDim.x);
+        pbuf = deserialize_uint32(pbuf, &gridDim.y);
+        pbuf = deserialize_uint32(pbuf, &gridDim.z);
+        pbuf = deserialize_uint32(pbuf, &blockDim.x);
+        pbuf = deserialize_uint32(pbuf, &blockDim.y);
+        pbuf = deserialize_uint32(pbuf, &blockDim.z);
+        pbuf = deserialize_uint64(pbuf, &sharedMem);
+        // TODO: using the only client CUstream for now
+        cudaError_t ret = mpsserver_cudaConfigureCall(gridDim, blockDim, sharedMem, client->stream);
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      case REQ_CUDA_SETUP_ARGUMENT: {
+        uint8_t *parg;
+        size_t size;
+        size_t offset;
+        // TODO: maintain a client-side stream ptr -> id map
+        uint8_t *pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, &size);
+        // parg is freed in `mpsserver_cudaSetupArgument`
+        parg = malloc(size);
+        pbuf = deserialize_str(pbuf, parg, size);
+        pbuf = deserialize_uint64(pbuf, &offset);
+        cudaError_t ret = mpsserver_cudaSetupArgument(parg, size, offset);
+        serialize_uint32(buf, ret);
+        send(socket, buf, sizeof(ret), 0);
+      } break;
+      case REQ_CUDA_LAUNCH_KERNEL: {
+        cudaError_t ret = mpsserver_cudaLaunchKernel(client);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
+      } break;
+      case REQ_TEST_CUDA_LAUNCH_KERNEL: {
         struct kernel_args kargs;
         uint64_t nargs, offset; 
         deserialize_kernel_args(buf, &kargs);
@@ -300,7 +400,7 @@ void *worker_thread(void *client_socket) {
         cudaError_t ret;
         if (kargs.function_index == 233) {
           mqx_print(DEBUG, "F_%d<<<%d, %d>>>(%zu args)", kargs.function_index, kargs.blocks_per_grid, kargs.threads_per_block, nargs);
-          ret = cuLaunchKernel(F_simpleAssert,
+          ret = cuLaunchKernel(F_vectorAdd,
                 kargs.blocks_per_grid, 1, 1,
                 kargs.threads_per_block, 1, 1,
                 0, client->stream, (void **)&(kargs.arg_info[1]), 0);
@@ -334,6 +434,6 @@ finish:
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
-  mqx_print(DEBUG, "living threads: %d", pglobal->mps_nclients);
+  mqx_print(DEBUG, "++++++++++++++++ worker thread exit (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
   return NULL;
 }

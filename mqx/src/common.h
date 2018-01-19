@@ -56,30 +56,30 @@ extern char *mqx_print_buffer;
 extern int mqx_print_lines;
 extern int mqx_print_head;
 extern struct spinlock mqx_print_lock;
-#define mqx_print(lvl, fmt, arg...)                                                                  \
-  do {                                                                                               \
-    if (lvl <= MQX_PRINT_LEVEL) {                                                                    \
-      int len;                                                                                       \
-      struct timeval t;                                                                              \
-      gettimeofday(&t, NULL);                                                                        \
-      acquire(&mqx_print_lock);                                                                      \
-      len = sprintf(mqx_print_buffer + mqx_print_head, "%s %lf " fmt "\n", MQX_PRINT_MSG[lvl],       \
-                    ((double)(t.tv_sec) + t.tv_usec / 1000000.0), ##arg);                            \
-      mqx_print_lines++;                                                                             \
-      mqx_print_head += len + 1;                                                                     \
-      release(&mqx_print_lock);                                                                      \
-    }                                                                                                \
+#define mqx_print(lvl, fmt, arg...)                                                            \
+  do {                                                                                         \
+    if (lvl <= MQX_PRINT_LEVEL) {                                                              \
+      int len;                                                                                 \
+      struct timeval t;                                                                        \
+      gettimeofday(&t, NULL);                                                                  \
+      acquire(&mqx_print_lock);                                                                \
+      len = sprintf(mqx_print_buffer + mqx_print_head, "%s %lf " fmt "\n", MQX_PRINT_MSG[lvl], \
+                    ((double)(t.tv_sec) + t.tv_usec / 1000000.0), ##arg);                      \
+      mqx_print_lines++;                                                                       \
+      mqx_print_head += len + 1;                                                               \
+      release(&mqx_print_lock);                                                                \
+    }                                                                                          \
   } while (0)
 #else
-#define mqx_print(lvl, fmt, arg...)                                                                  \
-  do {                                                                                               \
-    if (lvl <= MQX_PRINT_LEVEL) {                                                                    \
-      if (lvl > WARN) {                                                                              \
-        fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                  \
-      } else {                                                                                       \
-        fprintf(stderr, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg);                                  \
-      }                                                                                              \
-    }                                                                                                \
+#define mqx_print(lvl, fmt, arg...)                                 \
+  do {                                                              \
+    if (lvl <= MQX_PRINT_LEVEL) {                                   \
+      if (lvl > WARN) {                                             \
+        fprintf(stdout, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg); \
+      } else {                                                      \
+        fprintf(stderr, "%s " fmt "\n", MQX_PRINT_MSG[lvl], ##arg); \
+      }                                                             \
+    }                                                               \
   } while (0)
 #endif
 
@@ -87,11 +87,11 @@ void mqx_print_init();
 void mqx_print_fini();
 
 #ifdef MQX_CONFIG_PROFILE
-#define mqx_profile(fmt, arg...)                                                                     \
-  do {                                                                                               \
-    struct timeval tprof;                                                                            \
-    gettimeofday(&tprof, NULL);                                                                      \
-    mqx_print(STAT, "PROF %lf " fmt "\n", TVAL(tprof), ##arg);                                       \
+#define mqx_profile(fmt, arg...)                               \
+  do {                                                         \
+    struct timeval tprof;                                      \
+    gettimeofday(&tprof, NULL);                                \
+    mqx_print(STAT, "PROF %lf " fmt "\n", TVAL(tprof), ##arg); \
   } while (0)
 #else
 #define mqx_profile(fmt, arg...)
@@ -113,21 +113,26 @@ void mqx_print_fini();
 static inline pid_t gettid() { return (pid_t)syscall(__NR_gettid); }
 #endif
 
+#define CHECK_POINTER(p) do {                 \
+  if(p == NULL){                              \
+    perror("ASSERT: Failed to allocate host memory"); \
+    exit(-1);                                 \
+  }} while(0)
 void show_stackframe();
-#define ASSERT(cond, fmt, arg...) \
-  do {                            \
-    if (!(cond)) {                \
+#define ASSERT(cond, fmt, arg...)             \
+  do {                                        \
+    if (!(cond)) {                            \
       mqx_print(FATAL, "ASSERT " fmt, ##arg); \
-      show_stackframe();          \
-      exit(-1);                   \
-    }                             \
+      show_stackframe();                      \
+      exit(-1);                               \
+    }                                         \
   } while (0)
 
 void panic(const char *msg);
 #define CHECK(cond, msg) \
-  do {                           \
-    if (!(cond))                 \
-      panic(msg);                \
+  do {                   \
+    if (!(cond))         \
+      panic(msg);        \
   } while (0)
 
 #define checkCudaErrors(err) __checkCudaErrors(err, __FILE__, __LINE__)

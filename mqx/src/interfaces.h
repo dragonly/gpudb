@@ -34,21 +34,22 @@
 #endif
 
 // Checks whether dlsym was successful
-#define CHECK_DLERROR()                                                                                                \
-  do {                                                                                                                 \
-    char *__error;                                                                                                     \
-    if ((__error = dlerror()) != NULL) {                                                                               \
-      fputs(__error, stderr);                                                                                          \
-      abort();                                                                                                         \
-    }                                                                                                                  \
+#define CHECK_DLERROR()                  \
+  do {                                   \
+    char *__error;                       \
+    if ((__error = dlerror()) != NULL) { \
+      fputs(__error, stderr);            \
+      abort();                           \
+    }                                    \
   } while (0)
 
 // Gets the pointer to the default implementation of
 // an API function, func, and stores it in var.
-#define DEFAULT_API_POINTER(func, var)                                                                                 \
-  do {                                                                                                                 \
-    var = (typeof(var))dlsym(RTLD_NEXT, func);                                                                         \
-    CHECK_DLERROR();                                                                                                   \
+#define DEFAULT_API_POINTER(func, var)         \
+  do {                                         \
+    var = (typeof(var))dlsym(RTLD_NEXT, func); \
+    printf(#func " %p\n", var);\
+    CHECK_DLERROR();                           \
   } while (0)
 
 #endif // _MQX_INTERFACES_H_

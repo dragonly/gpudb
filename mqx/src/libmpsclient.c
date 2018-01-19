@@ -2,15 +2,34 @@
 #include <sys/un.h>
 #include <stdio.h>
 #include <errno.h>
-#include <cuda_runtime_api.h>
 #include "common.h"
 #include "protocol.h"
 #include "serialize.h"
+#include "libmps.h"
 
 // TODO: check all kinds of pointers
 // TODO: statistics
 
-static inline int send_large_buf(int socket, unsigned char *buf, uint32_t size);
+#define CLIENT_REQ_HEAD(LEN, REQ_TYPE, ROUND, LAST_LEN) \
+  uint32_t buf_size = max((LEN), MPS_REQ_SIZE);         \
+  uint32_t payload_size = (LEN);                        \
+  uint8_t *buf = malloc(buf_size);                      \
+  struct mps_req req;                                   \
+  req.type = REQ_TYPE;                                  \
+  req.len = (LEN);                                      \
+  req.round = (ROUND);                                  \
+  req.last_len = (LAST_LEN);                            \
+  serialize_mps_req(buf, req);                          \
+  send(client_socket, buf, MPS_REQ_SIZE, 0);
+
+#define CLIENT_REQ_TAIL(EXTRA_STMT)         \
+  cudaError_t ret;                          \
+  recv(client_socket, buf, sizeof(ret), 0); \
+  deserialize_uint32(buf, &ret);            \
+  free(buf);                                \
+  EXTRA_STMT;                               \
+  return ret;
+
 
 static int client_socket;
 
@@ -28,85 +47,78 @@ int mpsclient_init() {
     perror("conencting server socket");
     return -1;
   }
+  printf("connected\n");
   return 0;
 }
-void mpsclient_destroy() {
+cudaError_t mpsclient_destroy() {
+  CLIENT_REQ_HEAD(0, REQ_QUIT, 0, 0);
+  send(client_socket, buf, payload_size, 0);
   close(client_socket);
+  CLIENT_REQ_TAIL();
 }
+
 cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   // devPtr is not sent in socket
-  int buf_size = sizeof(size) + sizeof(flags);
-  unsigned char *buf = malloc(buf_size);
-  unsigned char *pbuf;
-  struct mps_req req;
-  req.type = REQ_GPU_MALLOC;
-  req.len = buf_size;
-  serialize_mps_req(buf, req);
-  send(client_socket, buf, MPS_REQ_SIZE, 0);
+  CLIENT_REQ_HEAD(sizeof(size) + sizeof(flags), REQ_CUDA_MALLOC, 0, 0);
+  uint8_t *pbuf;
   pbuf = buf;
   pbuf = serialize_uint64(pbuf, size);
   pbuf = serialize_uint32(pbuf, flags);
-  send(client_socket, buf, buf_size, 0);
-  recv(client_socket, buf, 4+8, 0);
-  cudaError_t ret;
-  pbuf = buf;
-  pbuf = deserialize_uint32(pbuf, &ret);
-  pbuf = deserialize_uint64(pbuf, (uint64_t *)devPtr);
-  mqx_print(DEBUG, "client cudaMalloc: devPtr(%p), ret(%d)", *(void **)devPtr, ret);
-  return ret;
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(devPtr), 0);
+  deserialize_uint64(buf, (uint64_t *)devPtr);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaMalloc: devPtr(%p) size(%lu) ret(%d)", *(void **)devPtr, size, ret))
 }
 cudaError_t mpsclient_cudaFree(void *devPtr) {
-  int buf_size = sizeof(devPtr);
-  unsigned char *buf = malloc(buf_size);
-  struct mps_req req;
-  req.type = REQ_GPU_MEMFREE;
-  req.len = buf_size;
-  serialize_mps_req(buf, req);
-  send(client_socket, buf, MPS_REQ_SIZE, 0);
+  mqx_print(DEBUG, "rpc cudaFree(%p)", devPtr);
+  CLIENT_REQ_HEAD(sizeof(devPtr), REQ_CUDA_MEMFREE, 0, 0);
   serialize_uint64(buf, (uint64_t)devPtr);
-  send(client_socket, buf, buf_size, 0);
-  cudaError_t ret;
-  recv(client_socket, buf, sizeof(ret), 0);
-  deserialize_uint32(buf, &ret);
-  return ret;
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
 }
 cudaError_t mpsclient_cudaMemcpyHostToDevice(void *dst, void *src, size_t size) {
-  int buf_size = max(sizeof(dst), MPS_REQ_SIZE);
-  unsigned char *buf = malloc(buf_size);
-  unsigned char *pbuf;
-  struct mps_req req;
-  req.type = REQ_GPU_MEMCPY_HTOD;
-  req.len = sizeof(dst);
-  req.round = size / MAX_BUFFER_SIZE + 1;
-  req.last_len = size % MAX_BUFFER_SIZE;
-  serialize_mps_req(buf, req);
-  send(client_socket, buf, MPS_REQ_SIZE, 0);
+  CLIENT_REQ_HEAD(sizeof(dst), REQ_CUDA_MEMCPY_HTOD, size / MAX_BUFFER_SIZE + 1, size % MAX_BUFFER_SIZE);
   serialize_uint64(buf, (uint64_t)dst);
-  send(client_socket, buf, sizeof(dst), 0);
+  send(client_socket, buf, payload_size, 0);
   int round_size;
   for (int i = 0; i < req.round; i++) {
     round_size = i == req.round - 1 ? req.last_len : MAX_BUFFER_SIZE;
-    pbuf = src + i * MAX_BUFFER_SIZE;
-    if (send_large_buf(client_socket, pbuf, round_size) != 0) {
+    if (send_large_buf(client_socket, src + i * MAX_BUFFER_SIZE, round_size) != 0) {
       return cudaErrorUnknown;
     }
   }
-  cudaError_t ret;
-  recv(client_socket, buf, sizeof(ret), 0);
-  deserialize_uint32(buf, &ret);
-  return ret;
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaMemcpyHtoD: dst(%p) size(%zu) ret(%d)", dst, size, ret))
 }
 cudaError_t mpsclient_cudaMemcpyDeviceToHost(void *dst, void *src, size_t size) {
-  return cudaErrorNotYetImplemented;
+  CLIENT_REQ_HEAD(sizeof(src), REQ_CUDA_MEMCPY_DTOH, size / MAX_BUFFER_SIZE + 1, size % MAX_BUFFER_SIZE);
+  serialize_uint64(buf, (uint64_t)src);
+  send(client_socket, buf, payload_size, 0);
+  int round_size;
+  for (int i = 0; i < req.round; i++) {
+    round_size = i == req.round - 1 ? req.last_len : MAX_BUFFER_SIZE;
+    if (recv_large_buf(client_socket, dst + i * MAX_BUFFER_SIZE, round_size) != 0) {
+      return cudaErrorUnknown;
+    }
+  }
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaMemcpyDtoH: src(%p) size(%zu) ret(%d)", src, size, ret))
 }
 cudaError_t mpsclient_cudaMemcpyDeviceToDevice(void *dst, void *src, size_t size) {
-  return cudaErrorNotYetImplemented;
+  CLIENT_REQ_HEAD(0, REQ_CUDA_MEMCPY_DTOD, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
 }
 cudaError_t mpsclient_cudaMemcpyHostToHost(void *dst, void *src, size_t size) {
-  return cudaErrorNotYetImplemented;
+  CLIENT_REQ_HEAD(0, REQ_CUDA_MEMCPY_HTOH, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
 }
 cudaError_t mpsclient_cudaMemcpyDefault(void *dst, void *src, size_t size) {
-  return cudaErrorNotYetImplemented;
+  CLIENT_REQ_HEAD(0, REQ_CUDA_MEMCPY_DEFAULT, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
 }
 cudaError_t mpsclient_cudaMemcpy(void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
   switch (kind) {
@@ -123,9 +135,61 @@ cudaError_t mpsclient_cudaMemcpy(void *dst, void *src, size_t size, enum cudaMem
   }
   return cudaErrorInvalidMemcpyDirection;
 }
+cudaError_t mpsclient_cudaAdvise(uint8_t iarg, uint8_t advice) {
+  CLIENT_REQ_HEAD(sizeof(iarg) + sizeof(advice), REQ_CUDA_ADVISE, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_str(pbuf, &iarg, 1);
+  pbuf = serialize_str(pbuf, &advice, 1);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
+}
+cudaError_t mpsclient_cudaSetFunction(uint32_t index) {
+  CLIENT_REQ_HEAD(sizeof(index), REQ_SET_KERNEL_FUNCTION, 0, 0);
+  serialize_uint32(buf, index);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaSetFunction: %d", index));
+}
+cudaError_t mpsclient_cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream) {
+  CLIENT_REQ_HEAD(6*sizeof(uint32_t) + sizeof(sharedMem) + sizeof(stream), REQ_CUDA_CONFIGURE_CALL, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint32(pbuf, gridDim.x);
+  pbuf = serialize_uint32(pbuf, gridDim.y);
+  pbuf = serialize_uint32(pbuf, gridDim.z);
+  pbuf = serialize_uint32(pbuf, blockDim.x);
+  pbuf = serialize_uint32(pbuf, blockDim.y);
+  pbuf = serialize_uint32(pbuf, blockDim.z);
+  pbuf = serialize_uint64(pbuf, sharedMem);
+  pbuf = serialize_uint64(pbuf, (uint64_t)stream);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaConfigureCall: <<<(%d %d %d), (%d %d %d), %lu, %p>>>", gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, sharedMem, stream));
+}
+// if `arg` is a device ptr, it is passed as is or it points to a host area and `size` bytes should be copied as the argument, i.e. primitive types such as int
+// anyway it is a ptr, and we should send the underneath value
+cudaError_t mpsclient_cudaSetupArgument(const void *arg, size_t size, size_t offset) {
+  CLIENT_REQ_HEAD(sizeof(arg) + sizeof(size) + sizeof(offset), REQ_CUDA_SETUP_ARGUMENT, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  //pbuf = serialize_uint64(pbuf, (uint64_t)arg);
+  pbuf = serialize_uint64(pbuf, size);
+  pbuf = serialize_str(pbuf, (uint8_t *)arg, size);
+  pbuf = serialize_uint64(pbuf, offset);
+  mqx_print(DEBUG, "cudaSetupArgument: arg(%p) size(%zu) offset(%zu)", arg, size, offset);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
+}
+cudaError_t mpsclient_cudaLaunch(const void *func) {
+  CLIENT_REQ_HEAD(0, REQ_CUDA_LAUNCH_KERNEL, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "cudaLaunch"));
+}
 cudaError_t mpsclient_cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {
   struct mps_req req;
-  req.type = REQ_GPU_LAUNCH_KERNEL;
+  req.type = REQ_CUDA_LAUNCH_KERNEL;
   struct kernel_args kargs;
   kargs.arg_info[0] = (void *)3;
   kargs.arg_info[1] = (void *)0;
@@ -155,21 +219,5 @@ cudaError_t mpsclient_cudaLaunchKernel(const void *func, dim3 gridDim, dim3 bloc
   cudaError_t res;
   deserialize_uint32(buf, &res);
   return cudaSuccess;
-}
-static inline int send_large_buf(int socket, unsigned char *buf, uint32_t size) {
-  unsigned char *pbuf = buf;
-  uint32_t sent, rest_size;
-  rest_size = size;
-  do {
-    sent = send(socket, pbuf, rest_size, 0);
-    if (sent < 0) {
-      mqx_print(ERROR, "sending to server socket: %s", strerror(errno));
-      return -1;
-    } else if (sent > 0) {
-      pbuf += sent;
-      rest_size -= sent;
-    };
-  } while (rest_size > 0);
-  return 0;
 }
 

@@ -269,7 +269,7 @@ s_CudaErrorStr sCudaDrvErrorString[] =
      * memory allocations from this context are invalid and must be
      * reconstructed if the program is to continue using CUDA.
      */
-    { "CUDA_ERROR_LAUNCH_FAILED", 700 },
+    { "CUDA_ERROR_ILLEGAL_ADDRESS", 700 },
 
     /**
      * This indicates that a launch did not occur because it did not have

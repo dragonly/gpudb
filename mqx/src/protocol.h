@@ -66,7 +66,7 @@ struct server_stats {
 struct kernel_args {
   void *arg_info[MAX_ARG_NUM + 1];
   uint16_t last_arg_len;
-  char args[MAX_ARG_SIZE];
+  uint8_t args[MAX_ARG_SIZE];
   uint16_t blocks_per_grid;
   uint16_t threads_per_block;
   uint16_t function_index;
@@ -74,13 +74,21 @@ struct kernel_args {
 
 enum mps_req_t {
   REQ_HOST_MALLOC = 0,
-  REQ_GPU_LAUNCH_KERNEL,
-  REQ_GPU_MALLOC,
-  REQ_GPU_MEMCPY,
-  REQ_GPU_MEMCPY_HTOD,
-  REQ_GPU_SYNC,
-  REQ_GPU_MEMFREE,
-  REQ_GPU_MEMSET,
+  REQ_CUDA_MALLOC,
+  REQ_CUDA_MEMCPY,
+  REQ_CUDA_MEMCPY_HTOD,
+  REQ_CUDA_MEMCPY_DTOH,
+  REQ_CUDA_MEMCPY_DTOD,
+  REQ_CUDA_MEMCPY_HTOH,
+  REQ_CUDA_MEMCPY_DEFAULT,
+  REQ_CUDA_MEMFREE,
+  REQ_CUDA_MEMSET,
+  REQ_CUDA_ADVISE,
+  REQ_SET_KERNEL_FUNCTION,
+  REQ_CUDA_CONFIGURE_CALL,
+  REQ_CUDA_SETUP_ARGUMENT,
+  REQ_CUDA_LAUNCH_KERNEL,
+  REQ_TEST_CUDA_LAUNCH_KERNEL,
   REQ_QUIT
 };
 #define MPS_REQ_SIZE 16
@@ -147,11 +155,14 @@ struct global_context {
   struct mps_client mps_clients[MAX_CLIENTS];
   uint32_t mps_clients_bitmap;
   uint16_t mps_nclients;
+  uint64_t gpumem_total;
+  uint64_t gpumem_used;
   pthread_mutex_t client_mutex;
   struct list_head allocated_regions;
   pthread_mutex_t alloc_mutex;
   struct list_head attached_regions;
   pthread_mutex_t attach_mutex;
+  pthread_mutex_t kernel_launch_mutex;
 };
 
 enum msgtype {

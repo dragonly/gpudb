@@ -10,8 +10,7 @@ endif
 CUDAPATH = /usr/local/cuda
 
 # Source files needed to generate libmqx
-SRCS = client.c common.c core.c cow.c interfaces.c \
-	   msq.c replacement.c stats.c libc_hooks.c
+SRCS = client.c common.c core.c cow.c interfaces.c  msq.c replacement.c stats.c libc_hooks.c libmps.c
 OBJS = $(SRCS:.c=.o)
 
 # Compiler/linker settings
@@ -41,14 +40,17 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
-mpsserver : mpsserver.o common.o serialize.o libmpsserver.o
+mpsserver : mpsserver.o common.o serialize.o libmpsserver.o libmps.o
 	$(NVCC) -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
 	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
 
-libmps.so: mps_interfaces.o libmpsclient.o serialize.o common.o
-	$(CC) -g -Wall -shared -pthread -ldl -lcuda -DMQX_PRINT_LEVEL=5  -I$(CUDAPATH)/include $^ -o $@
+libmps.so: mps_interfaces.o libmpsclient.o serialize.o common.o libmps.o
+	$(CC) -g -Wall -shared -pthread -ldl -DMQX_PRINT_LEVEL=5  -I$(CUDAPATH)/include $^ -o $@
+
+vectorAdd : vectorAdd.cu
+	$(NVCC) -g -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 -L. -lmps -Xlinker -rpath=. $^ -o $@
 
 mps_testclient : mps_testclient.o serialize.o common.o
 	$(NVCC) -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -lrt -ldl -lpthread -arch=sm_61 $^ -o $@
