@@ -60,21 +60,26 @@ cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   }
   //mqx_print(DEBUG, "allocate %zu bytes, %zu bytes free", size, pglobal->mem_total);
 
+  // TODO: FLAG_PTARRAY
   struct mps_region *rgn;
   rgn = (struct mps_region *)calloc(1, sizeof(struct mps_region));
+  pthread_mutex_init(&rgn->mm_mutex, NULL);
   rgn->swap_addr = malloc(size);
   rgn->gpu_addr = 0;
-  // TODO: FLAG_PTARRAY
+  rgn->state = DETACHED;
   rgn->nblocks = NBLOCKS(size);
   rgn->blocks = (struct mps_block *)calloc(rgn->nblocks, sizeof(struct mps_block));
-  for (int i = 0; i < rgn->nblocks; i++) {
-    pthread_mutex_init(&rgn->blocks[i].mutex_lock, NULL);
-  }
+  INIT_LIST_HEAD(&rgn->entry_alloc);
+  INIT_LIST_HEAD(&rgn->entry_attach);
   rgn->size = size;
-  rgn->state = DETACHED;
+  rgn->memset_value = 0;
   rgn->flags = flags;
   rgn->using_kernels = 0;
+  rgn->n_input = 0;
+  rgn->n_output = 0;
+  rgn->advice = 0;
   rgn->evict_cost = 0;
+  rgn->freq = 0;
   add_allocated_region(rgn);
   *devPtr = rgn->swap_addr;
   return cudaSuccess;
@@ -86,10 +91,10 @@ cudaError_t mpsserver_cudaFree(void *devPtr) {
     return cudaErrorInvalidDevicePointer;
   }
   cudaError_t ret;
-  mqx_print_region(DEBUG, rgn, "mpsserver_cudaFree");
   if ((ret = free_region(rgn) != cudaSuccess)) {
     return ret;
   }
+  mqx_print_region(DEBUG, rgn, "mpsserver_cudaFree success");
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
@@ -232,7 +237,6 @@ cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client) {
   }
 
 attach:
-  pthread_mutex_lock(&pglobal->kernel_launch_mutex);
   ret = attach_regions(rgns, nrgns);
   if (ret != cudaSuccess) {
     if (ret == cudaErrorLaunchTimeout) {
@@ -301,7 +305,6 @@ attach:
     free(kcb);
     free(kernel_args_buf);
     free(kernel_args_ptr);
-    pthread_mutex_unlock(&pglobal->kernel_launch_mutex);
     return cret;
   }
   cuStreamAddCallback(client->stream, kernel_finish_callback, (void *)kcb, 0);
@@ -311,7 +314,6 @@ attach:
   // NOTE: `kcb` cannot be freed here!!! it should be the work of `kernel_finish_callback`
   free(kernel_args_buf);
   free(kernel_args_ptr);
-  pthread_mutex_unlock(&pglobal->kernel_launch_mutex);
   if (kconf->func_index != 233) {
     mqx_print(DEBUG, "launch kernel <%s> succeeded", fname_table[kconf->func_index]);
   } else {
@@ -433,21 +435,19 @@ static cudaError_t attach_regions(struct mps_region **rgns, uint32_t nrgns) {
       ret = cudaErrorInvalidValue;
       goto fail;
     }
-    pthread_mutex_lock(&rgn->mm_mutex);
     ret = attach_region(rgn);
-    pthread_mutex_unlock(&rgn->mm_mutex);
     if (ret != cudaSuccess) {
       goto fail;
     }
   }
 
-  mqx_print(DEBUG, "successfully attached regions, %d in total", nrgns);
+  mqx_print(DEBUG, "successfully attached %d regions", nrgns);
   return ret;
 fail:
 // TODO: detach all regions
   return ret;
 }
-// TODO: this is copied directly from mqx and is said for GTX580, further inspection needed
+// FIXME: this is copied directly from mqx and is said for GTX580, further inspection needed
 static inline uint64_t calibrate_size(long size) {
   uint64_t size_calibrated = 0;
   if (size < 0)
@@ -462,34 +462,36 @@ static inline uint64_t calibrate_size(long size) {
 }
 static cudaError_t attach_region(struct mps_region *rgn) {
   mqx_print_region(DEBUG, rgn, "attaching region");
+  pthread_mutex_lock(&rgn->mm_mutex);
   if (rgn->state == ATTACHED) {
     // TODO: update region position in LRU list
+    mqx_print_region(DEBUG, rgn, "region already attached");
     rgn->using_kernels += 1;
+    pthread_mutex_unlock(&rgn->mm_mutex);
     return cudaSuccess;
   }
-  if (rgn->state != DETACHED) {
-    mqx_print_region(ERROR, rgn, "attaching a non-detached region");
+  if (rgn->state == ZOMBIE) {
+    mqx_print_region(ERROR, rgn, "attaching a zombie region");
+    pthread_mutex_unlock(&rgn->mm_mutex);
     return cudaErrorInvalidValue;
   }
+  // EVICTED || DETACHED
   cudaError_t ret;
   if (calibrate_size(rgn->size) <= gpu_freemem()) {
-    if ((ret = cuMemAlloc((CUdeviceptr *)&(rgn->gpu_addr), rgn->size)) == cudaSuccess) {
-      mqx_print(DEBUG, "cuMemAlloc: %lu@%p", rgn->size, (void *)rgn->gpu_addr);
-      goto success;
-    } else {
+    if ((ret = cuMemAlloc((CUdeviceptr *)&(rgn->gpu_addr), rgn->size)) != cudaSuccess) {
       mqx_print(DEBUG, "attach region: cuMemAlloc failed, %s(%d)", cudaGetErrorString(ret), ret);
-      if (ret == cudaErrorLaunchFailure) {
-        return ret;
-      }
+      pthread_mutex_unlock(&rgn->mm_mutex);
+      return ret;
     }
   }
-  // TODO: try to evict and allocate gpu memory again
-success:
+  // TODO: evict and try to allocate gpu memory again
+  mqx_print(DEBUG, "cuMemAlloc: %lu bytes @ %p", rgn->size, (void *)rgn->gpu_addr);
   pglobal->gpumem_used += calibrate_size(rgn->size);
   rgn->using_kernels += 1;
   toggle_region_valid(rgn, 0/*gpu*/, 0/*invalid*/);
   rgn->state = ATTACHED;
   add_attached_region(rgn);
+  pthread_mutex_unlock(&rgn->mm_mutex);
   return ret;
 }
 static inline void toggle_region_valid(struct mps_region *rgn, uint8_t is_swap, uint8_t value) {
@@ -561,25 +563,26 @@ static struct mps_region *find_allocated_region(struct global_context *pglobal, 
 static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_region ***prgns, uint32_t *pnrgns) {
   struct client_kernel_conf *kconf = &client->kconf;
   struct mps_region **rgns, *rgn;
-  uint32_t nrgns = 0;
+  uint32_t nrgns_upper_bound = 0;
   ASSERT(kconf->nadvices >= 0 && kconf->nadvices <= MAX_ARGS, "invalid number of advices(%d)", kconf->nadvices);
   ASSERT(kconf->nargs >= 0 && kconf->nargs <= MAX_ARGS, "invalid number of arguments(%d)", kconf->nargs);
 
   // get upper bound of unique regions number
+  // TODO: column data
   for (int i = 0; i < kconf->nargs; i++) {
     if (kconf->kargs[i].is_dptr) {
-      nrgns++;
+      nrgns_upper_bound++;
       rgn = kconf->kargs[i].dptr.rgn;
       if (rgn->flags & FLAG_PTARRAY) {
-        nrgns += rgn->size / sizeof(void *);
+        nrgns_upper_bound += rgn->size / sizeof(void *);
       }
     }
   }
-  rgns = malloc(sizeof(struct mps_region *) * nrgns);
+  rgns = malloc(sizeof(struct mps_region *) * nrgns_upper_bound);
   CHECK_POINTER(rgns);
 
   // fetch and mark unique referenced regions
-  nrgns = 0;
+  uint32_t nrgns = 0;
   uint64_t mem_total = 0;
   for (int i = 0; i < kconf->nargs; i++) {
     if (kconf->kargs[i].is_dptr) {
@@ -615,10 +618,12 @@ begin:
     // enough memory on gpu, just free it
     case ATTACHED:
       if (rgn->using_kernels == 0) {
+        checkCudaErrors(cuMemFree((CUdeviceptr)rgn->gpu_addr));
         goto revoke_resources;
       }
       rgn->evict_cost = 0;
       pthread_mutex_unlock(&rgn->mm_mutex);
+      mqx_print(DEBUG, "region is attached, and being used: using_kernels(%d) n_input(%d) n_output(%d)", rgn->using_kernels, rgn->n_input, rgn->n_output);
       // region still being used by kernel(s), waiting for the end.
       // Because column data is not passed in by socket, but allocated by the server,
       // and shared among client processes, this should not be `cudaFree`ed, thus must
@@ -626,21 +631,16 @@ begin:
       sched_yield();
       goto begin;
     case EVICTED:
-      mqx_print(DEBUG, "free a being evicted region");
+      mqx_print(DEBUG, "freeing an evicted region, just do it");
       goto revoke_resources;
     case DETACHED:
-      mqx_print(DEBUG, "free a detached region");
-      checkCudaErrors(cuMemFree((CUdeviceptr)rgn->gpu_addr));
-      rgn->gpu_addr = 0;
+      mqx_print(DEBUG, "freeing a detached region");
       goto revoke_resources;
     case ZOMBIE:
       pthread_mutex_unlock(&rgn->mm_mutex);
       mqx_print(ERROR, "freeing a zombie region");
-      return cudaErrorInvalidValue;
-    default:
-      pthread_mutex_unlock(&rgn->mm_mutex);
-      mqx_print(FATAL, "no such region state");
-      return cudaErrorInvalidValue;
+      // TODO: ensure this only happends on shared columns, and means that some other thread has already freed this column when no kernel is using it
+      return cudaSuccess;
   }
 revoke_resources:
   // TODO: gc thread
@@ -652,6 +652,7 @@ revoke_resources:
   rgn->swap_addr = NULL;
   rgn->state = ZOMBIE;
   pthread_mutex_unlock(&rgn->mm_mutex);
+  pthread_mutex_destroy(&rgn->mm_mutex);
   return cudaSuccess;
 }
 static cudaError_t mpsserver_cudaMemcpyHostToSwap(struct mps_client *client, void *dst, void *src, size_t size) {
@@ -763,9 +764,6 @@ finish:
   return ret;
 }
 static cudaError_t mpsserver_doHtoS_block(struct mps_client *client, struct mps_region *rgn, uint64_t offset, void *src, uint32_t transfer_size, uint32_t iblock, uint8_t skip_on_wait, uint8_t *skipped) {
-  struct mps_block *blk = &rgn->blocks[iblock];
-  ASSERT(BLOCKIDX(offset) == iblock, "  doHtoS_block: offset and block index do not match");
-
   if (skip_on_wait) {
     if (pthread_mutex_trylock(&rgn->mm_mutex)) {
       *skipped = 1;
@@ -774,6 +772,9 @@ static cudaError_t mpsserver_doHtoS_block(struct mps_client *client, struct mps_
   } else {
     pthread_mutex_lock(&rgn->mm_mutex);
   }
+
+  struct mps_block *blk = &rgn->blocks[iblock];
+  ASSERT(BLOCKIDX(offset) == iblock, "  doHtoS_block: offset and block index do not match");
 
   cudaError_t ret;
   // gpu valid && swap invalid && the block transfer to swap is partial block
@@ -874,7 +875,6 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
   struct mps_dma_channel *channel = &client->dma_htod;
   cudaError_t ret;
   uint64_t offset_dtos, offset_stoh, round_size, ibuflast;
-  pthread_mutex_lock(&client->dma_mutex);
   offset_dtos = 0;
   ibuflast = channel->ibuf;
   // first initiate DMA to fully occupy all dma stage buffer
@@ -918,14 +918,12 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
     channel->ibuf = (channel->ibuf + 1) % DMA_NBUF;
   }
 end:
-  pthread_mutex_unlock(&client->dma_mutex);
   return ret;
 }
 static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdeviceptr dst, void *src, size_t size) {
   struct mps_dma_channel *channel = &client->dma_htod;
   cudaError_t ret;
   uint64_t offset, round_size, ibuflast;
-  pthread_mutex_lock(&client->dma_mutex);
   offset = 0;
   while (offset < size) {
     if ((ret = cudaEventSynchronize(channel->events[channel->ibuf])) != cudaSuccess) {
@@ -951,7 +949,6 @@ static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdevicep
     goto end;
   }
 end:
-  pthread_mutex_unlock(&client->dma_mutex);
   return ret;
 }
 static cudaError_t mpsserver_cudaMemcpyDeviceToHost(struct mps_client *client, void *dst, void *src, size_t size) {

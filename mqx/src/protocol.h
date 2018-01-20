@@ -81,7 +81,6 @@ struct client_kernel_conf {
 struct mps_client {
   uint16_t id;
   CUstream stream;
-  pthread_mutex_t dma_mutex;
   struct mps_dma_channel dma_htod;
   struct mps_dma_channel dma_dtoh;
   struct client_kernel_conf kconf;  // per-client kernel configurations
@@ -191,7 +190,6 @@ struct global_context {
   pthread_mutex_t alloc_mutex;
   struct list_head attached_regions;
   pthread_mutex_t attach_mutex;
-  pthread_mutex_t kernel_launch_mutex;
 };
 
 enum msgtype {

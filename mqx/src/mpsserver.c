@@ -91,7 +91,6 @@ struct global_context *pglobal;
 
 void sigint_handler(int signum) {
   mqx_print(DEBUG, "closing server...");
-  pthread_mutex_destroy(&pglobal->client_mutex);
   unlink(SERVER_SOCKET_FILE);
   close(shmfd);
   checkCudaErrors(cuCtxDestroy(cudaContext));
@@ -124,7 +123,7 @@ int main(int argc, char **argv) {
   pglobal->mps_nclients = 0;
   pthread_mutex_init(&pglobal->client_mutex, NULL);
   pthread_mutex_init(&pglobal->alloc_mutex, NULL);
-  pthread_mutex_init(&pglobal->kernel_launch_mutex, NULL);
+  pthread_mutex_init(&pglobal->attach_mutex, NULL);
   INIT_LIST_HEAD(&pglobal->allocated_regions);
   INIT_LIST_HEAD(&pglobal->attached_regions);
 
@@ -179,7 +178,7 @@ int main(int argc, char **argv) {
   pglobal->mps_nclients = 0;
   pthread_mutex_destroy(&pglobal->client_mutex);
   pthread_mutex_destroy(&pglobal->alloc_mutex);
-  pthread_mutex_destroy(&pglobal->kernel_launch_mutex);
+  pthread_mutex_destroy(&pglobal->attach_mutex);
   struct list_head *pos;
   struct mps_region *rgn;
   list_for_each(pos, &pglobal->allocated_regions) {
@@ -224,7 +223,6 @@ void *worker_thread(void *client_socket) {
   checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
   dma_channel_init(&client->dma_htod, 1);
   dma_channel_init(&client->dma_dtoh, 0);
-  pthread_mutex_init(&client->dma_mutex, NULL);
   client->kconf.ktop = client->kconf.kstack;
   client->kconf.nargs = 0;
   client->kconf.nadvices = 0;
@@ -432,7 +430,6 @@ finish:
   checkCudaErrors(cuStreamDestroy(client->stream));
   dma_channel_destroy(&client->dma_htod);
   dma_channel_destroy(&client->dma_dtoh);
-  pthread_mutex_destroy(&client->dma_mutex);
   pthread_mutex_unlock(&pglobal->client_mutex);
 
   free(client_socket);

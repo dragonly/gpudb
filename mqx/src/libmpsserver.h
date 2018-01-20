@@ -32,7 +32,6 @@
 struct mps_block {
   uint8_t gpu_valid;
   uint8_t swap_valid;
-  pthread_mutex_t mutex_lock;
 };
 typedef enum {
   DETACHED = 0, // not allocated with device memory
@@ -45,10 +44,10 @@ typedef enum {
 #define FLAG_COW      2  // Copy-on-write
 #define FLAG_MEMSET   4  // Lazy cudaMemset
 struct mps_region {
-  pthread_mutex_t mm_mutex;
-  mps_region_state_t state;
-  CUdeviceptr gpu_addr;
+  pthread_mutex_t mm_mutex;  // for shared region concurrency control, e.g. shared columns
   void *swap_addr;
+  CUdeviceptr gpu_addr;
+  mps_region_state_t state;
   struct mps_block *blocks;
   struct list_head entry_alloc;
   struct list_head entry_attach;
