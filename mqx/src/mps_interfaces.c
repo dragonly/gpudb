@@ -56,7 +56,9 @@ cudaError_t cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyK
       return nv_cudaMemcpy(dst, src, size, kind);
   }
 }
-
+cudaError_t cudaMemset(void *devPtr, int32_t value, size_t count) {
+  return mpsclient_cudaMemset(devPtr, value, count);
+}
 cudaError_t cudaAdvise(int iarg, int advice) {
   return mpsclient_cudaAdvise(iarg, advice);
 }

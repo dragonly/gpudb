@@ -292,7 +292,7 @@ void *worker_thread(void *client_socket) {
         // FIXME: bug resides in multi-round situations
         mqx_print(DEBUG, "starting a (%lu bytes/%d round) Host->Swap memcpy", (req.round-1)*MAX_BUFFER_SIZE+req.last_len, req.round);
         for (int i = 0; i < req.round; i++) {
-          round_size = i == req.round - 1 ? req.last_len : i * MAX_BUFFER_SIZE;
+          round_size = i == req.round - 1 ? req.last_len : MAX_BUFFER_SIZE;
           if (recv_large_buf(socket, buf, round_size) != 0) {
             pthread_exit(NULL);
           }
@@ -331,6 +331,18 @@ void *worker_thread(void *client_socket) {
       case REQ_CUDA_MEMCPY_HTOH:
       case REQ_CUDA_MEMCPY_DEFAULT: {
         serialize_uint32(buf, cudaErrorNotYetImplemented);
+        send(socket, buf, sizeof(cudaError_t), 0);
+      } break;
+      case REQ_CUDA_MEMSET: {
+        void *devPtr;
+        int32_t value;
+        size_t count;
+        uint8_t *pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&devPtr);
+        pbuf = deserialize_uint32(pbuf, (uint32_t *)&value);
+        pbuf = deserialize_uint64(pbuf, &count);
+        cudaError_t ret = mpsserver_cudaMemset(client, devPtr, value, count);
+        serialize_uint32(buf, ret);
         send(socket, buf, sizeof(cudaError_t), 0);
       } break;
       case REQ_CUDA_ADVISE: {

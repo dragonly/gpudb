@@ -68,7 +68,7 @@ cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   recv(client_socket, buf, sizeof(devPtr), 0);
   deserialize_uint64(buf, (uint64_t *)devPtr);
   CLIENT_REQ_TAIL(\
-    mqx_print(DEBUG, "cudaMalloc: devPtr(%p) size(%lu) ret(%d)", *(void **)devPtr, size, ret))
+    mqx_print(DEBUG, "devPtr(%p) size(%lu) ret(%d)", *(void **)devPtr, size, ret))
 }
 cudaError_t mpsclient_cudaFree(void *devPtr) {
   mqx_print(DEBUG, "rpc cudaFree(%p)", devPtr);
@@ -81,6 +81,7 @@ cudaError_t mpsclient_cudaMemcpyHostToDevice(void *dst, void *src, size_t size) 
   CLIENT_REQ_HEAD(sizeof(dst), REQ_CUDA_MEMCPY_HTOD, size / MAX_BUFFER_SIZE + 1, size % MAX_BUFFER_SIZE);
   serialize_uint64(buf, (uint64_t)dst);
   send(client_socket, buf, payload_size, 0);
+  mqx_print(DEBUG, "starting a (%lu bytes/%d round) Host->Device memcpy", size, req.round);
   int round_size;
   for (int i = 0; i < req.round; i++) {
     round_size = i == req.round - 1 ? req.last_len : MAX_BUFFER_SIZE;
@@ -89,7 +90,7 @@ cudaError_t mpsclient_cudaMemcpyHostToDevice(void *dst, void *src, size_t size) 
     }
   }
   CLIENT_REQ_TAIL(\
-    mqx_print(DEBUG, "cudaMemcpyHtoD: dst(%p) size(%zu) ret(%d)", dst, size, ret))
+    mqx_print(DEBUG, "dst(%p) size(%zu) ret(%d)", dst, size, ret))
 }
 cudaError_t mpsclient_cudaMemcpyDeviceToHost(void *dst, void *src, size_t size) {
   CLIENT_REQ_HEAD(sizeof(src), REQ_CUDA_MEMCPY_DTOH, size / MAX_BUFFER_SIZE + 1, size % MAX_BUFFER_SIZE);
@@ -105,6 +106,7 @@ cudaError_t mpsclient_cudaMemcpyDeviceToHost(void *dst, void *src, size_t size) 
   CLIENT_REQ_TAIL(\
     mqx_print(DEBUG, "cudaMemcpyDtoH: src(%p) size(%zu) ret(%d)", src, size, ret))
 }
+// TODO: implement this!!!
 cudaError_t mpsclient_cudaMemcpyDeviceToDevice(void *dst, void *src, size_t size) {
   CLIENT_REQ_HEAD(0, REQ_CUDA_MEMCPY_DTOD, 0, 0);
   send(client_socket, buf, payload_size, 0);
@@ -134,6 +136,16 @@ cudaError_t mpsclient_cudaMemcpy(void *dst, void *src, size_t size, enum cudaMem
       return cudaErrorNotYetImplemented;
   }
   return cudaErrorInvalidMemcpyDirection;
+}
+cudaError_t mpsclient_cudaMemset(void *devPtr, int32_t value, size_t count) {
+  CLIENT_REQ_HEAD(sizeof(devPtr) + sizeof(int32_t) + sizeof(count), REQ_CUDA_MEMSET, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint64(pbuf, (uint64_t)devPtr);
+  pbuf = serialize_uint32(pbuf, value);
+  pbuf = serialize_uint64(pbuf, count);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL();
 }
 cudaError_t mpsclient_cudaAdvise(uint8_t iarg, uint8_t advice) {
   CLIENT_REQ_HEAD(sizeof(iarg) + sizeof(advice), REQ_CUDA_ADVISE, 0, 0);

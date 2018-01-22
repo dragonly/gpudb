@@ -25,6 +25,7 @@ void mpsclient_destroy();
 cudaError_t mpsclient_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsclient_cudaFree(void *devPtr);
 cudaError_t mpsclient_cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyKind kind);
+cudaError_t mpsclient_cudaMemset(void *devPtr, int32_t value, size_t count);
 cudaError_t mpsclient_cudaAdvise(int iarg, int advice);
 cudaError_t mpsclient_cudaSetFunction(int index);
 cudaError_t mpsclient_cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream);

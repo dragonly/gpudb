@@ -80,6 +80,7 @@ struct mps_region {
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsserver_cudaFree(void *devPtr);
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind);
+cudaError_t mpsserver_cudaMemset(struct mps_client *client, void *dst, int32_t value, size_t size);
 cudaError_t mpsserver_cudaAdvise(struct mps_client *client, int iarg, int advice);
 cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index);
 cudaError_t mpsserver_cudaConfigureCall(struct mps_client *client, dim3 gridDim, dim3 blockDim, size_t sharedMem, CUstream stream);

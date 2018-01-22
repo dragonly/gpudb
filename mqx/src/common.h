@@ -75,9 +75,9 @@ extern struct spinlock mqx_print_lock;
   do {                                                              \
     if (lvl <= MQX_PRINT_LEVEL) {                                   \
       if (lvl > WARN) {                                             \
-        fprintf(stdout, "%s %s: " fmt "\n", MQX_PRINT_MSG[lvl], __func__, ##arg); \
+        fprintf(stdout, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, __FILE__, __LINE__); \
       } else {                                                      \
-        fprintf(stderr, "%s %s: " fmt "\n", MQX_PRINT_MSG[lvl], __func__, ##arg); \
+        fprintf(stderr, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, __FILE__, __LINE__); \
       }                                                             \
     }                                                               \
   } while (0)

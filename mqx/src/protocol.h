@@ -36,7 +36,7 @@
 /**
  * MPS related
  */
-#define SERVER_SOCKET_FILE "mqx_mps_server"
+#define SERVER_SOCKET_FILE "/tmp/mqx_mps_server"
 #define MAX_BUFFER_SIZE (1L * 1024L * 1024L)
 
 #define MAX_ARG_SIZE  4096
