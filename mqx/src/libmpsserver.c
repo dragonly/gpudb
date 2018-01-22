@@ -15,7 +15,7 @@
 // TODO: check all kinds of pointers
 // TODO: statistics
 
-// foward declarations
+// foward declarations of internal functions
 static struct mps_region *find_allocated_region(struct global_context*, const void*);
 static void add_allocated_region(struct mps_region*);
 static void remove_allocated_region(struct mps_region *rgn);
@@ -28,25 +28,30 @@ static cudaError_t attach_region(struct mps_region *rgn);
 static cudaError_t load_regions(struct mps_client *client, struct mps_region **rgns, uint32_t nrgns);
 static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn);
 static cudaError_t load_region_memset(struct mps_client *client, struct mps_region *rgn);
-static inline void toggle_region_valid(struct mps_region *rgn, uint8_t is_swap, uint8_t value);
-static inline uint64_t calibrate_size(long size);
-static inline uint64_t gpu_freemem();
+static cudaError_t load_region_pta(struct mps_client *client, struct mps_region *rgn);
 static cudaError_t mpsserver_cudaMemcpyHostToSwap(struct mps_client *client, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_cudaMemcpyDeviceToHost(struct mps_client *client, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_cudaMemcpyDeviceToDevice(struct mps_client *client, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_cudaMemcpyDefault(struct mps_client *client, void *dst, void *src, size_t size);
+static cudaError_t mpsserver_doMemset(struct mps_client *client, struct mps_region *rgn, void *dst, int32_t value, size_t size);
+static cudaError_t mpsserver_memset_block(struct mps_client *client, struct mps_region *rgn, uint64_t offset, int32_t value, size_t size, uint32_t iblock, uint8_t skip_on_wait, uint8_t *skipped);
 static cudaError_t mpsserver_HtoS(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_doHtoS(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_doHtoS_block(struct mps_client *client, struct mps_region*, uint64_t, void*, uint32_t, uint32_t, uint8_t, uint8_t*);
+static cudaError_t mpsserver_doHtoS_pta(struct mps_region *rgn, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_DtoH(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_doDtoH(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size);
+static cudaError_t mpsserver_doDtoH_pta(struct mps_region *rgn, void *dst, void *src, size_t size);
 static cudaError_t mpsserver_doDtoH_block(struct mps_client *client, struct mps_region*, uint64_t, void*, uint32_t, uint32_t, uint8_t, uint8_t*);
 static cudaError_t mpsserver_sync_block(struct mps_client *client, struct mps_region *rgn, uint32_t iblock);
 static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdeviceptr dst, void *src, size_t size);
 static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst, CUdeviceptr src, size_t size);
 static void update_region_evict_cost(struct mps_region *rgn);
 static void kernel_finish_callback(CUstream stream, CUresult ret, void *data);
+static inline void toggle_region_valid(struct mps_region *rgn, uint8_t is_swap, uint8_t value);
 static inline uint8_t contains_ptr(const void **range, uint32_t len, const void *target);
+static inline uint64_t calibrate_size(long size);
+static inline uint64_t gpu_freemem();
 
 // in mpsserver.c
 extern struct global_context *pglobal;
@@ -63,8 +68,15 @@ cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   // TODO: FLAG_PTARRAY
   struct mps_region *rgn;
   rgn = (struct mps_region *)calloc(1, sizeof(struct mps_region));
+  if (flags & FLAG_PTARRAY) {
+    if (size % sizeof(void *)) {
+      mqx_print(ERROR, "device pointer array size (%lu) not aligned", size);
+      return cudaErrorInvalidValue;
+    }
+    rgn->pta_addr = calloc(1, size);
+  }
   pthread_mutex_init(&rgn->mm_mutex, NULL);
-  rgn->swap_addr = malloc(size);
+  rgn->swap_addr = calloc(1, size);
   rgn->gpu_addr = 0;
   rgn->state = DETACHED;
   rgn->nblocks = NBLOCKS(size);
@@ -112,7 +124,132 @@ cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src
   }
   return cudaErrorInvalidMemcpyDirection;
 }
+cudaError_t mpsserver_cudaMemset(struct mps_client *client, void *dst, int32_t value, size_t size) {
+  if (size == 0) {
+    mqx_print(WARN, "size == 0");
+    return cudaSuccess;
+  }
+  struct mps_region *rgn;
+  if ((rgn = find_allocated_region(pglobal, dst)) == NULL) {
+    mqx_print(ERROR, "cannot find region swap(%p)", dst);
+    return cudaErrorInvalidDevicePointer;
+  }
+  ASSERT(rgn->state != ZOMBIE, "zombie region swap(%p)", dst);
+  if (dst + size > rgn->swap_addr + rgn->size) {
+    mqx_print(ERROR, "out of region range");
+    return cudaErrorInvalidValue;
+  }
+  
+  if (rgn->flags & FLAG_PTARRAY) {
+    uint64_t offset = dst - rgn->swap_addr;
+    memset(rgn->pta_addr + offset, value, size);
+    return cudaSuccess;
+  }
+  if (size == rgn->size) { // memset whole region, do it lazily, only set FLAG_MEMSET
+    rgn->flags |= FLAG_MEMSET;
+    rgn->memset_value = value;
+    toggle_region_valid(rgn, 0, 0);
+    toggle_region_valid(rgn, 1, 0);
+    update_region_evict_cost(rgn);
+    return cudaSuccess;
+  }
+  // partial memset, finish the former whole-region lazy memset's non-overlapping parts
+  // honestly this part is hardly useful...
+  cudaError_t ret;
+  if (rgn->flags & FLAG_MEMSET) {
+    uint64_t offset = dst - rgn->swap_addr;
+    // left part
+    if (offset > 0) {
+      ret = mpsserver_doMemset(client, rgn, rgn->swap_addr, rgn->memset_value, offset);
+      if (ret != cudaSuccess) {
+        return ret;
+      }
+    }
+    // right part
+    offset += size;
+    if (offset < rgn->size) {
+      ret = mpsserver_doMemset(client, rgn, rgn->swap_addr + offset, rgn->memset_value, rgn->size - offset);
+      if (ret != cudaSuccess) {
+        return ret;
+      }
+    }
+    rgn->flags &= ~FLAG_MEMSET;
+    rgn->memset_value = 0;
+  }
+  ret = mpsserver_doMemset(client, rgn, dst, value, size);
+  if (ret == cudaSuccess) {
+    update_region_evict_cost(rgn);
+  }
+  return ret;
+}
+static cudaError_t mpsserver_doMemset(struct mps_client *client, struct mps_region *rgn, void *dst, int32_t value, size_t size) {
+  uint64_t offset = dst - rgn->swap_addr;
+  const uint64_t end_offset = offset + size;
+  const uint32_t istart = BLOCKIDX(offset);
+  const uint32_t iend = BLOCKIDX(end_offset - 1);
+  uint8_t *skipped = calloc(1, iend - istart + 1);
+  uint32_t transfer_size;
+  cudaError_t ret;
+  for (uint32_t i = istart; i < iend; i++) {
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
+    ret = mpsserver_memset_block(client, rgn, offset, value, transfer_size, i, 1, skipped + i - istart);
+    if (ret != cudaSuccess) {
+      goto end;
+    }
+    offset += size;
+  }
+  offset = dst - rgn->swap_addr;
+  for (uint32_t i = istart; i < iend; i++) {
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
+    if (skipped[i - istart]) {
+      ret = mpsserver_memset_block(client, rgn, offset, value, transfer_size, i, 1, skipped + i - istart);
+      if (ret != cudaSuccess) {
+        goto end;
+      }
+    }
+    offset += size;
+  }
+end:
+  free(skipped);
+  return ret;
+}
+// NOTE: this is almost the same as doHtoS_block/doDtoH_block
+static cudaError_t mpsserver_memset_block(struct mps_client *client, struct mps_region *rgn, uint64_t offset, int32_t value, size_t transfer_size, uint32_t iblock, uint8_t skip_on_wait, uint8_t *skipped) {
+  if (skip_on_wait) {
+    if (pthread_mutex_trylock(&rgn->mm_mutex)) {
+      *skipped = 1;
+      return cudaSuccess;
+    }
+  } else {
+    pthread_mutex_lock(&rgn->mm_mutex);
+  }
 
+  struct mps_block *blk = &rgn->blocks[iblock];
+  ASSERT(BLOCKIDX(offset) == iblock, "  doHtoS_block: offset and block index do not match");
+
+  cudaError_t ret;
+  // gpu valid && swap invalid && the block transfer to swap is partial block
+  // then the gpu block needs to be synced to swap block first, and then write
+  // the other hopefully non-overlapping part to swap block
+  if (!blk->swap_valid && blk->gpu_valid) {
+    uint8_t partial_modification = (offset & (~BLOCKMASK)) ||
+        ((transfer_size < BLOCKSIZE) && ((offset + transfer_size) < rgn->size));
+    if (partial_modification) {
+      ret = mpsserver_sync_block(client, rgn, iblock);
+      if (ret != cudaSuccess) {
+        if (skip_on_wait) {
+          *skipped = 0;
+        }
+        return ret;
+      }
+    }
+  }
+  memset(rgn->swap_addr + offset, value, transfer_size);
+  blk->swap_valid = 1;
+  blk->gpu_valid = 0;
+  pthread_mutex_unlock(&rgn->mm_mutex);
+  return cudaSuccess;
+}
 cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index) {
   client->kconf.func_index = index;
   return cudaSuccess;
@@ -362,14 +499,12 @@ static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn
   if (rgn->flags & FLAG_MEMSET) {
     ret = load_region_memset(client, rgn);
   } else if (rgn->flags & FLAG_PTARRAY) {
-    // TODO
-    ret = cudaErrorNotYetImplemented;
+    ret = load_region_pta(client, rgn);
   } else {
     mqx_print_region(DEBUG, rgn, "loading region");
     for (uint32_t i = 0; i < NBLOCKS(rgn->size); i++) {
       if (!rgn->blocks[i].gpu_valid) {
         if ((ret = mpsserver_sync_block(client, rgn, i)) != cudaSuccess) {
-          // TODO: print __FILE__ and __func__ in levels severer than WARN
           mqx_print(ERROR, "mpsserver_sync_block failed");
           return ret;
         }
@@ -381,13 +516,33 @@ static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn
 }
 static cudaError_t load_region_memset(struct mps_client *client, struct mps_region *rgn) {
   cudaError_t ret;
-  if ((ret = cuMemsetD32Async((CUdeviceptr)rgn->gpu_addr, rgn->memset_value, rgn->size, client->stream)) != cudaSuccess) {
+  if ((ret = cuMemsetD8Async((CUdeviceptr)rgn->gpu_addr, rgn->memset_value, rgn->size, client->stream)) != cudaSuccess) {
     mqx_print(ERROR, "cuda memset failed: %s(%d)", cudaGetErrorString(ret), ret);
     return ret;
   }
   rgn->flags &= ~FLAG_MEMSET;
   rgn->memset_value = 0;
   toggle_region_valid(rgn, 0/*gpu*/, 1);
+  return cudaSuccess;
+}
+static cudaError_t load_region_pta(struct mps_client *client, struct mps_region *rgn) {
+  mqx_print_region(DEBUG, rgn, "loading dptr array region and all sub-regions");
+  void **pdptr = rgn->pta_addr; // swap address of pointers
+  void **pend = rgn->pta_addr + rgn->size;
+  uint64_t offset = 0;
+  struct mps_region *rtmp;
+  while (pdptr < pend) {
+    rtmp = find_allocated_region(pglobal, *pdptr);
+    if (rtmp == NULL) {
+      mqx_print(ERROR, "cannot find region for dptr(%p)", *pdptr);
+      return cudaErrorInvalidDevicePointer;
+    }
+    // populate the swap_addr of dptr array region with gpu_addr(after attached) + offset
+    *(void **)(rgn->swap_addr + offset) = (void *)rtmp->gpu_addr + (*pdptr - rtmp->swap_addr);
+    offset += sizeof(void *);
+    pdptr++;
+  }
+  mqx_print(DEBUG, "dptr array region loaded");
   return cudaSuccess;
 }
 static void kernel_finish_callback(CUstream stream, CUresult ret, void *data) {
@@ -598,7 +753,32 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
       }
 
       if (rgn->flags & FLAG_PTARRAY) {
-      } // TODO: FLAG_PTARRAY
+        void **pdptr = (void **)rgn->pta_addr;
+        void **pend = (void **)(rgn->pta_addr + rgn->size);
+        if (rgn->advice != CADV_INPUT) {
+          mqx_print(WARN, "dptr array MUST be INPUT-ONLY, correcting it");
+          rgn->advice = CADV_INPUT;
+        }
+        mem_total += rgn->size;
+        while (pdptr < pend) {
+          rgn = find_allocated_region(pglobal, *pdptr);
+          if (rgn == NULL) {
+            mqx_print(ERROR, "cannot find region for dptr(%p)", *pdptr);
+            return cudaErrorInvalidDevicePointer;
+          }
+          if (!contains_ptr((const void **)rgns, nrgns, (const void *)rgn)) {
+            mqx_print_region(DEBUG, rgn, "new referenced region(ptr array), offset(%zu)", kconf->kargs[i].dptr.offset);
+            rgn->advice = kconf->kargs[i].dptr.advice & CADV_MASK;
+            rgns[nrgns++] = rgn;
+            rgn->advice = ((kconf->kargs[i].dptr.advice & CADV_PTAINPUT) ? CADV_INPUT : 0) | ((kconf->kargs[i].dptr.advice & CADV_PTAOUTPUT) ? CADV_OUTPUT : 0);
+            mem_total += rgn->size;
+          } else {
+            mqx_print_region(DEBUG, rgn, "re-referenced region(ptr array), offset(%zu)", kconf->kargs[i].dptr.offset);
+            rgn->advice |= ((kconf->kargs[i].dptr.advice & CADV_PTAINPUT) ? CADV_INPUT : 0) | ((kconf->kargs[i].dptr.advice & CADV_PTAOUTPUT) ? CADV_OUTPUT : 0);
+          }
+          pdptr++;
+        }
+      } // FLAG_PTARRAY
     } // argument is dptr
   } // foreach argument
 
@@ -675,8 +855,32 @@ static cudaError_t mpsserver_cudaMemcpyHostToSwap(struct mps_client *client, voi
 }
 static cudaError_t mpsserver_HtoS(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size) {
   mqx_print(DEBUG, " HtoS: region{swap(%p) size(%ld) flags(%d), state(%d)}, dst(%p) src(%p) size(%ld)", rgn->swap_addr, rgn->size, rgn->flags, rgn->state, dst, src, size);
-  // TODO: ptarray, memset
-  cudaError_t ret = mpsserver_doHtoS(client, rgn, dst, src, size);
+  if (rgn->flags & FLAG_PTARRAY) {
+    return mpsserver_doHtoS_pta(rgn, dst, src, size);
+  }
+  cudaError_t ret;
+  // finish the former whole-region lazy memset's non-overlapping parts
+  if (rgn->flags & FLAG_MEMSET) {
+    uint64_t offset = dst - rgn->swap_addr;
+    // left part
+    if (offset > 0) {
+      ret = mpsserver_doMemset(client, rgn, rgn->swap_addr, rgn->memset_value, offset);
+      if (ret != cudaSuccess) {
+        return ret;
+      }
+    }
+    // right part
+    offset += size;
+    if (offset < rgn->size) {
+      ret = mpsserver_doMemset(client, rgn, rgn->swap_addr + offset, rgn->memset_value, rgn->size - offset);
+      if (ret != cudaSuccess) {
+        return ret;
+      }
+    }
+    rgn->flags &= ~FLAG_MEMSET;
+    rgn->memset_value = 0;
+  }
+  ret = mpsserver_doHtoS(client, rgn, dst, src, size);
   if (ret == cudaSuccess) {
     update_region_evict_cost(rgn);
   }
@@ -684,25 +888,55 @@ static cudaError_t mpsserver_HtoS(struct mps_client *client, struct mps_region *
 }
 static cudaError_t mpsserver_DtoH(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size) {
   mqx_print_region(DEBUG, rgn, " DtoH: dst(%p) src(%p) size(%ld)", dst, src, size);
+  cudaError_t ret;
+  if (rgn->flags & FLAG_PTARRAY) {
+    return mpsserver_doDtoH_pta(rgn, dst, src, size);
+  }
   // TODO: ptarray, memset
-  cudaError_t ret = mpsserver_doDtoH(client, rgn, dst, src, size);
+  ret = mpsserver_doDtoH(client, rgn, dst, src, size);
   if (ret == cudaSuccess) {
     update_region_evict_cost(rgn);
   }
   return ret;
 }
+static cudaError_t mpsserver_doHtoS_pta(struct mps_region *rgn, void *dst, void *src, size_t size) {
+  uint64_t offset = dst - rgn->swap_addr;
+  if (offset % sizeof(void *)) {
+    mqx_print(ERROR, "offset(%lu) not aligned", offset);
+    return cudaErrorInvalidValue;
+  }
+  if (size % sizeof(void *)) {
+    mqx_print(ERROR, "size(%lu) not aligned", size);
+    return cudaErrorInvalidValue;
+  }
+  memcpy(rgn->pta_addr + offset, src, size);
+  return cudaSuccess;
+}
+static cudaError_t mpsserver_doDtoH_pta(struct mps_region *rgn, void *dst, void *src, size_t size) {
+  uint64_t offset = src - rgn->swap_addr;
+  if (offset % sizeof(void *)) {
+    mqx_print(ERROR, "offset(%lu) not aligned", offset);
+    return cudaErrorInvalidValue;
+  }
+  if (size % sizeof(void *)) {
+    mqx_print(ERROR, "size(%lu) not aligned", size);
+    return cudaErrorInvalidValue;
+  }
+  memcpy(dst, rgn->pta_addr + offset, size);
+  return cudaSuccess;
+}
 static cudaError_t mpsserver_doHtoS(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size) {
   uint64_t offset = (uint64_t)(dst - rgn->swap_addr);
   uint64_t psrc = (uint64_t)src;
-  const uint64_t end_addr = (uint64_t)(offset + size);
+  const uint64_t end_offset = (uint64_t)(offset + size);
   const uint32_t istart = BLOCKIDX(offset);
-  const uint32_t iend = BLOCKIDX(end_addr - 1);
+  const uint32_t iend = BLOCKIDX(end_offset - 1);
   // TODO: a cleaner solution, e.g. a while loop?
   uint8_t *skipped = (uint8_t *)calloc(iend - istart + 1, sizeof(uint8_t));
   uint32_t transfer_size;
   cudaError_t ret;
   for (int i = istart; i <= iend; i++) {
-    transfer_size = min(BLOCKUP(offset), end_addr) - offset;
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
     ret = mpsserver_doHtoS_block(client, rgn, offset, (void *)psrc, transfer_size, i, 1, skipped + i - istart);
     if (ret != 0) {
       goto finish;
@@ -713,7 +947,7 @@ static cudaError_t mpsserver_doHtoS(struct mps_client *client, struct mps_region
   psrc = (uint64_t)src;
   offset = (uint64_t)(dst - rgn->swap_addr);
   for (int i = istart; i <= iend; i++) {
-    transfer_size = min(BLOCKUP(offset), end_addr) - offset;
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
     if (skipped[i - istart]) {
       ret = mpsserver_doHtoS_block(client, rgn, offset, (void *)psrc, transfer_size, i, 0, NULL);
       if (ret != 0) {
@@ -730,15 +964,15 @@ finish:
 static cudaError_t mpsserver_doDtoH(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size) {
   uint64_t offset = (uint64_t)(src - rgn->swap_addr);
   void *pdst = dst;  // dst is the server buf
-  const uint64_t end_addr = (uint64_t)(offset + size);
+  const uint64_t end_offset = (uint64_t)(offset + size);
   const uint32_t istart = BLOCKIDX(offset);
-  const uint32_t iend = BLOCKIDX(end_addr - 1);
+  const uint32_t iend = BLOCKIDX(end_offset - 1);
   // TODO: a cleaner solution, e.g. a while loop?
   uint8_t *skipped = (uint8_t *)calloc(iend - istart + 1, sizeof(uint8_t));
   uint32_t transfer_size;
   cudaError_t ret;
   for (int i = istart; i <= iend; i++) {
-    transfer_size = min(BLOCKUP(offset), end_addr) - offset;
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
     ret = mpsserver_doDtoH_block(client, rgn, offset, pdst, transfer_size, i, 1, skipped + i - istart);
     if (ret != 0) {
       goto finish;
@@ -749,7 +983,7 @@ static cudaError_t mpsserver_doDtoH(struct mps_client *client, struct mps_region
   pdst = dst;
   offset = (uint64_t)(src - rgn->swap_addr);
   for (int i = istart; i <= iend; i++) {
-    transfer_size = min(BLOCKUP(offset), end_addr) - offset;
+    transfer_size = min(BLOCKUP(offset), end_offset) - offset;
     if (skipped[i - istart]) {
       ret = mpsserver_doDtoH_block(client, rgn, offset, pdst, transfer_size, i, 0, NULL);
       if (ret != 0) {

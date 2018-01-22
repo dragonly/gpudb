@@ -47,6 +47,9 @@ struct mps_region {
   pthread_mutex_t mm_mutex;  // for shared region concurrency control, e.g. shared columns
   void *swap_addr;
   CUdeviceptr gpu_addr;
+  // if this region contains a dptr array, then pta_addr contains swap addresses, which is consistent through the whole life of mpsserver
+  // and the swap_addr will be filled with correct gpu address just in time before every kernel launch
+  void *pta_addr; 
   mps_region_state_t state;
   struct mps_block *blocks;
   struct list_head entry_alloc;
