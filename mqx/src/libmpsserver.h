@@ -58,9 +58,9 @@ struct mps_region {
   int32_t memset_value;
   uint32_t nblocks;
   uint32_t flags;
-  uint32_t using_kernels;
-  uint32_t n_input;
-  uint32_t n_output;
+  volatile uint32_t using_kernels;
+  volatile uint32_t n_input;
+  volatile uint32_t n_output;
   uint32_t advice;
   uint64_t evict_cost;
   uint64_t freq;
@@ -69,9 +69,9 @@ struct mps_region {
   do {                                                              \
     if (lvl <= MQX_PRINT_LEVEL) {                                   \
       if (lvl > WARN) {                                             \
-        fprintf(stdout, "%s " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d)\n", MQX_PRINT_MSG[lvl], ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags); \
+        fprintf(stdout, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags, __FILE__, __LINE__); \
       } else {                                                      \
-        fprintf(stderr, "%s " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d)\n", MQX_PRINT_MSG[lvl], ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags); \
+        fprintf(stderr, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags, __FILE__, __LINE__); \
       }                                                             \
     }                                                               \
   } while (0)

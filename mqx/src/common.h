@@ -71,15 +71,18 @@ extern struct spinlock mqx_print_lock;
     }                                                                                          \
   } while (0)
 #else
-#define mqx_print(lvl, fmt, arg...)                                 \
-  do {                                                              \
-    if (lvl <= MQX_PRINT_LEVEL) {                                   \
-      if (lvl > WARN) {                                             \
-        fprintf(stdout, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, __FILE__, __LINE__); \
-      } else {                                                      \
-        fprintf(stderr, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, __FILE__, __LINE__); \
-      }                                                             \
-    }                                                               \
+#define mqx_print(lvl, fmt, arg...)                                     \
+  do {                                                                  \
+    if (lvl <= MQX_PRINT_LEVEL) {                                       \
+      if (lvl > WARN) {                                                 \
+        fprintf(stdout, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], \
+            __func__, ##arg, __FILE__, __LINE__);                       \
+      } else {                                                          \
+        /* TODO: print to stderr after debugging */                     \
+        fprintf(stdout, "%s %s: " fmt " (%s:%d)\n", MQX_PRINT_MSG[lvl], \
+            __func__, ##arg, __FILE__, __LINE__);                       \
+      }                                                                 \
+    }                                                                   \
   } while (0)
 #endif
 
@@ -113,10 +116,10 @@ void mqx_print_fini();
 static inline pid_t gettid() { return (pid_t)syscall(__NR_gettid); }
 #endif
 
-#define CHECK_POINTER(p) do {                 \
-  if(p == NULL){                              \
+#define CHECK_POINTER(p) do {                         \
+  if(p == NULL){                                      \
     perror("ASSERT: Failed to allocate host memory"); \
-    exit(-1);                                 \
+    exit(-1);                                         \
   }} while(0)
 void show_stackframe();
 #define ASSERT(cond, fmt, arg...)             \
