@@ -519,7 +519,7 @@ static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn
 static cudaError_t load_region_memset(struct mps_client *client, struct mps_region *rgn) {
   cudaError_t ret;
   if ((ret = cuMemsetD8Async((CUdeviceptr)rgn->gpu_addr, rgn->memset_value, rgn->size, client->stream)) != cudaSuccess) {
-    mqx_print(ERROR, "cuMemsetD32Async failed: %s(%d)", cudaGetErrorString(ret), ret);
+    mqx_print(ERROR, "cuMemsetD8Async failed: %s(%d)", cudaGetErrorString(ret), ret);
     return ret;
   }
   rgn->flags &= ~FLAG_MEMSET;
@@ -1233,11 +1233,15 @@ static cudaError_t mpsserver_cudaMemcpyDeviceToDevice(struct mps_client *client,
   }
 
   if ((rgn_src = find_allocated_region(pglobal, src)) == NULL) {
-    mqx_print(ERROR, "region not found for src(%p)", src);
+    mqx_print(ERROR, "Device->Device, region not found for src(%p)", src);
     return cudaErrorInvalidDevicePointer;
   }
   if (rgn_src->state == ZOMBIE) {
-    mqx_print_region(ERROR, rgn_src, "src region is a zombie");
+    mqx_print_region(ERROR, rgn_src, "src region is a ZOMBIE");
+    return cudaErrorInvalidValue;
+  }
+  if (rgn_src->state == DETACHED) {
+    mqx_print_region(ERROR, rgn_src, "src region is DETACHED");
     return cudaErrorInvalidValue;
   }
   if (src + size > rgn_src->swap_addr + rgn_src->size) {
@@ -1250,7 +1254,7 @@ static cudaError_t mpsserver_cudaMemcpyDeviceToDevice(struct mps_client *client,
     return cudaErrorInvalidDevicePointer;
   }
   if (rgn_dst->state == ZOMBIE) {
-    mqx_print_region(ERROR, rgn_dst, "dst region is a zombie");
+    mqx_print_region(ERROR, rgn_dst, "dst region is a ZOMBIE");
     return cudaErrorInvalidValue;
   }
   if (dst + size > rgn_dst->swap_addr + rgn_dst->size) {
@@ -1266,11 +1270,7 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
   cudaError_t ret;
   pthread_mutex_lock(&rgn_dst->mm_mutex);
   pthread_mutex_lock(&rgn_src->mm_mutex);
-  if (rgn_dst->flags & FLAG_MEMSET) {
-    if ((ret = load_region_memset(client, rgn_dst)) != cudaSuccess) {
-      goto end;
-    }
-  } else if (rgn_dst->state == DETACHED) {
+  if (rgn_dst->state == DETACHED) {
     pthread_mutex_unlock(&rgn_dst->mm_mutex);
     if ((ret = attach_region(rgn_dst)) != cudaSuccess) {
       mqx_print(ERROR, "attach region failed");
@@ -1280,6 +1280,11 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
     pthread_mutex_lock(&rgn_dst->mm_mutex);
     // NOTE: using_kernel is increased after a successful region attachment, but no kernel is actually using it, and it cannot be decreased by any kernel callback because it is attached here, just for DtoD memcpy but not before a kernel launch. so maybe we can decrease it by one here
     __sync_fetch_and_sub(&rgn_dst->using_kernels, 1);
+  }
+  if (rgn_dst->flags & FLAG_MEMSET) {
+    if ((ret = load_region_memset(client, rgn_dst)) != cudaSuccess) {
+      goto end;
+    }
   } else {
     for (uint32_t i = 0; i < rgn_dst->nblocks; i++) {
       blk = &rgn_dst->blocks[i];
@@ -1296,15 +1301,6 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
     if ((ret = load_region_memset(client, rgn_src)) != cudaSuccess) {
       goto end;
     }
-  } else if (rgn_src->state == DETACHED) {
-    pthread_mutex_unlock(&rgn_src->mm_mutex);
-    if ((ret = attach_region(rgn_src)) != cudaSuccess) {
-      mqx_print(ERROR, "attach region failed");
-      goto end;
-    }
-    mqx_print(WARN, "rgn_src is in DETACHED state!!!");
-    pthread_mutex_lock(&rgn_src->mm_mutex);
-    __sync_fetch_and_sub(&rgn_src->using_kernels, 1);
   } else {
     for (uint32_t i = 0; i < rgn_src->nblocks; i++) {
       blk = &rgn_src->blocks[i];

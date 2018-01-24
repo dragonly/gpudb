@@ -44,10 +44,10 @@ mpsserver : mpsserver.o common.o serialize.o libmpsserver.o libmps.o
 	$(NVCC) -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
-	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=5 -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
+	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
 
 libmps.so: mps_interfaces.o libmpsclient.o serialize.o common.o libmps.o
-	$(CC) -g -Wall -shared -pthread -ldl -DMQX_PRINT_LEVEL=5  -I$(CUDAPATH)/include $^ -o $@
+	$(CC) -g -Wall -shared -pthread -ldl -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include $^ -o $@
 
 vectorAdd : vectorAdd.cu
 	$(NVCC) -g -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -arch=sm_61 -L. -lmps -Xlinker -rpath=. $^ -o $@
@@ -56,7 +56,7 @@ mps_testclient : mps_testclient.o serialize.o common.o
 	$(NVCC) -cudart=shared -L$(CUDAPATH)/lib64 -lcuda -lrt -ldl -lpthread -arch=sm_61 $^ -o $@
 
 mps_testclient.o: mps_testclient.c
-	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=5 $^ -o $@
+	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) $^ -o $@
 
 mqxctl : mqxctl.o common.o
 	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@
