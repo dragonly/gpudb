@@ -38,7 +38,7 @@ int mpsclient_init() {
   struct sockaddr_un server;
   client_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (client_socket < 0) {
-    printf("opening client socket: %s\n", strerror(errno));
+    mqx_print(FATAL, "opening client socket: %s\n", strerror(errno));
     return -1;
   }
   server.sun_family = AF_UNIX;
@@ -48,7 +48,7 @@ int mpsclient_init() {
     perror("conencting server socket");
     return -1;
   }
-  printf("connected\n");
+  mqx_print(DEBUG, "connected\n");
   return 0;
 }
 cudaError_t mpsclient_destroy() {

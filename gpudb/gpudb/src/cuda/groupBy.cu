@@ -237,10 +237,10 @@ extern "C" __global__ void agg_cal_cons(char **content, int colNum, int *funcArr
   int stride = blockDim.x * gridDim.x;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   // this is for debugging pta loading
-  if (index == 0) {
-    printf("%p %d %p %p %p %p %p %p %lu %p %p %p\n", content, colNum, funcArray, op, exp, mathOffset, gbType, gbSize, tupleNum, key, psum, result);
-    printf("%p %p %d %d %d %p %d %d %d %lu %p %p %p %p\n", content[0], content[1], colNum, *funcArray, *op, exp, *mathOffset, *gbType, *gbSize, tupleNum, key, psum, result[0], result[1]);
-  }
+  // if (index == 0) {
+  //   printf("%p %d %p %p %p %p %p %p %lu %p %p %p\n", content, colNum, funcArray, op, exp, mathOffset, gbType, gbSize, tupleNum, key, psum, result);
+  //   printf("%p %p %d %d %d %p %d %d %d %lu %p %p %p %p\n", content[0], content[1], colNum, *funcArray, *op, exp, *mathOffset, *gbType, *gbSize, tupleNum, key, psum, result[0], result[1]);
+  // }
   float buf[32];
   for (int i = 0; i < 32; i++)
     buf[i] = 0;

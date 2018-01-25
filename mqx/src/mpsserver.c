@@ -160,7 +160,6 @@ int main(int argc, char **argv) {
       close(client_socket);
       continue;
     }
-    mqx_print(INFO, "starting up worker thread to serve new connection");
     new_socket = malloc(sizeof(int));
     *new_socket = client_socket;
     pthread_t thread;
@@ -227,7 +226,7 @@ void *worker_thread(void *client_socket) {
   client->kconf.nargs = 0;
   client->kconf.nadvices = 0;
   client->kconf.func_index = -1;
-  mqx_print(DEBUG, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id + 1, pglobal->mps_nclients);
+  mqx_print(INFO, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id + 1, pglobal->mps_nclients);
   
   int rret;
   int socket = *(int *)client_socket;
@@ -518,6 +517,6 @@ finish:
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
-  mqx_print(DEBUG, "++++++++++++++++ worker thread exit (%d/%d)    ++++++++++++++++", client_id, pglobal->mps_nclients);
+  mqx_print(INFO, "++++++++++++++++ worker thread exit (%d/%d)    ++++++++++++++++", client_id, pglobal->mps_nclients);
   return NULL;
 }

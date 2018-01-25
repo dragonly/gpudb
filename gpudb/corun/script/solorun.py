@@ -9,7 +9,7 @@ outpath = rootpath + r'/trace/file/'
 querypath = rootpath + r'/corun/query_progs/'
 datapath = rootpath + r'/../data/'
 
-rep = 6
+rep = 9
 LOAD_GMM = 1
 if LOAD_GMM:
 	preloadlib=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '

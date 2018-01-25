@@ -48,7 +48,7 @@
 #define DEFAULT_API_POINTER(func, var)         \
   do {                                         \
     var = (typeof(var))dlsym(RTLD_NEXT, func); \
-    printf(#func " %p\n", var);\
+    /*printf(#func " %p\n", var);*/            \
     CHECK_DLERROR();                           \
   } while (0)
 

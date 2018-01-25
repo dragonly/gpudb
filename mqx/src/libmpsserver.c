@@ -55,6 +55,7 @@ static inline uint64_t gpu_freemem();
 // in mpsserver.c
 extern struct global_context *pglobal;
 extern CUfunction F_vectorAdd;
+const char *_err_buf;
 
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   if (size == 0) {
@@ -453,7 +454,8 @@ attach:
   }
   checkCudaErrors(cuStreamSynchronize(client->stream));
   if ((cret = cuLaunchKernel(kernel, kconf->gridDim.x, kconf->gridDim.y, kconf->gridDim.z, kconf->blockDim.x, kconf->blockDim.y, kconf->blockDim.z, kconf->sharedMem, client->stream, kernel_args_ptr, 0)) != cudaSuccess) {
-    mqx_print(FATAL, "cuLaunchKernel failed: %s(%d)", cudaGetErrorString(cret), cret);
+    cuGetErrorString(cret, &_err_buf);
+    mqx_print(FATAL, "cuLaunchKernel failed: %s(%d)", _err_buf, cret);
     for (int i = 0; i < nrgns; i++) {
       if (kcb->advices[i] & CADV_OUTPUT) {
         __sync_fetch_and_sub(&rgns[i]->n_output, 1);
@@ -498,14 +500,16 @@ static cudaError_t load_regions(struct mps_client *client, struct mps_region **r
     rgn = rgns[i];
     if (rgn->advice & CADV_INPUT) {
       if ((ret = load_region(client, rgn)) != cudaSuccess) {
-        mqx_print_region(ERROR, rgn, "load_region failed, %s(%d)", cudaGetErrorString(ret), ret);
+        cuGetErrorString(ret, &_err_buf);
+        mqx_print_region(ERROR, rgn, "load_region failed, %s(%d)", _err_buf, ret);
         return ret;
       }
     }
     if (rgn->advice & CADV_OUTPUT) {
       if (rgn->flags & FLAG_MEMSET) {
         if ((ret = load_region_memset(client, rgn)) != cudaSuccess) {
-          mqx_print_region(ERROR, rgn, "load_region_memset failed, %s(%d).", cudaGetErrorString(ret), ret);
+          cuGetErrorString(ret, &_err_buf);
+          mqx_print_region(ERROR, rgn, "load_region_memset failed, %s(%d).", _err_buf, ret);
           return ret;
         }
       }
@@ -540,7 +544,8 @@ static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn
 static cudaError_t load_region_memset(struct mps_client *client, struct mps_region *rgn) {
   cudaError_t ret;
   if ((ret = cuMemsetD8Async((CUdeviceptr)rgn->gpu_addr, rgn->memset_value, rgn->size, client->stream)) != cudaSuccess) {
-    mqx_print(ERROR, "cuMemsetD8Async failed: %s(%d)", cudaGetErrorString(ret), ret);
+    cuGetErrorString(ret, &_err_buf);
+    mqx_print(ERROR, "cuMemsetD8Async failed: %s(%d)", _err_buf, ret);
     return ret;
   }
   rgn->flags &= ~FLAG_MEMSET;
@@ -582,7 +587,8 @@ static cudaError_t load_region_pta(struct mps_client *client, struct mps_region 
 static void kernel_finish_callback(CUstream stream, CUresult ret, void *data) {
   struct kernel_callback *kcb = (struct kernel_callback *)data;
   if (ret != CUDA_SUCCESS) {
-    mqx_print(ERROR, "kernel <%s>[%d] execution failed: %s(%d)", fname_table[kcb->func_index], kcb->func_index, cudaGetErrorString(ret), ret);
+    cuGetErrorString(ret, &_err_buf);
+    mqx_print(ERROR, "kernel <%s>[%d] execution failed: %s(%d)", fname_table[kcb->func_index], kcb->func_index, _err_buf, ret);
   } else {
     mqx_print(DEBUG, "kernel <%s>[%d] execution succeeded", fname_table[kcb->func_index], kcb->func_index);
   }
@@ -668,7 +674,8 @@ static cudaError_t attach_region(struct mps_region *rgn) {
   cudaError_t ret;
   if (calibrate_size(rgn->size) <= gpu_freemem()) {
     if ((ret = cuMemAlloc((CUdeviceptr *)&(rgn->gpu_addr), rgn->size)) != cudaSuccess) {
-      mqx_print(DEBUG, "cuMemAlloc failed, %s(%d)", cudaGetErrorString(ret), ret);
+      cuGetErrorString(ret, &_err_buf);
+      mqx_print(DEBUG, "cuMemAlloc failed, %s(%d)", _err_buf, ret);
       pthread_mutex_unlock(&rgn->mm_mutex);
       return ret;
     }
