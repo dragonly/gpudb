@@ -32,5 +32,11 @@ cudaError_t mpsclient_cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t shar
 cudaError_t mpsclient_cudaSetupArgument(const void *arg, size_t size, size_t offset);
 cudaError_t mpsclient_cudaLaunch(const void *func);
 cudaError_t mpsclient_cudaLaunchKernel(const void*, dim3, dim3, void**, size_t, cudaStream_t);
-int send_large_buf(int socket, unsigned char *buf, uint32_t size);
+cudaError_t mpsclient_cudaMemGetInfo(size_t *free, size_t *total);
+cudaError_t mpsclient_cudaDeviceSynchronize();
+cudaError_t mpsclient_cudaEventCreate(cudaEvent_t *event);
+cudaError_t mpsclient_cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEvent_t end);
+cudaError_t mpsclient_cudaEventRecord(cudaEvent_t event, cudaStream_t stream);
+cudaError_t mpsclient_cudaEventSynchronize(cudaEvent_t event);
+cudaError_t mpsclient_cudaGetDevice(int *device);
 

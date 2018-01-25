@@ -12,8 +12,6 @@
 #include "libmpsserver.h"
 #include "kernel_symbols.h"
 
-// TODO: check all kinds of pointers
-// TODO: statistics
 
 // foward declarations of internal functions
 static struct mps_region *find_allocated_region(struct global_context*, const void*);
@@ -97,13 +95,36 @@ cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   *devPtr = rgn->swap_addr;
   return cudaSuccess;
 }
+cudaError_t mpsserver_cudaMemGetInfo(size_t *free, size_t *total) {
+  return cuMemGetInfo(free, total);
+}
+cudaError_t mpsserver_cudaDeviceSynchronize(struct mps_client *client) {
+  return cuStreamSynchronize(client->stream);
+}
+cudaError_t mpsserver_cudaEventCreate(cudaEvent_t *event) {
+  return cuEventCreate(event, CU_EVENT_DEFAULT);
+}
+cudaError_t mpsserver_cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEvent_t end) {
+  return cuEventElapsedTime(ms, start, end);
+}
+cudaError_t mpsserver_cudaEventRecord(struct mps_client *client, cudaEvent_t event, cudaStream_t stream) {
+  // TODO: multiple stream support for each cient process
+  return cuEventRecord(event, client->stream);
+}
+cudaError_t mpsserver_cudaEventSynchronize(cudaEvent_t event) {
+  return cuEventSynchronize(event);
+}
+cudaError_t mpsserver_cudaGetDevice(int *device) {
+  // NOTE: only handles single device
+  return cuDeviceGet(device, 0);
+}
 cudaError_t mpsserver_cudaFree(void *devPtr) {
   struct mps_region *rgn;
+  cudaError_t ret;
   if (!(rgn = find_allocated_region(pglobal, devPtr))) {
     mqx_print(ERROR, "invalid device pointer %p", devPtr);
     return cudaErrorInvalidDevicePointer;
   }
-  cudaError_t ret;
   if ((ret = free_region(rgn) != cudaSuccess)) {
     return ret;
   }
@@ -615,7 +636,7 @@ fail:
 // TODO: detach all regions
   return ret;
 }
-// FIXME: this is copied directly from mqx and is said for GTX580, further inspection needed
+// TODO: this is copied directly from libmqx and is said for GTX580, further inspection needed
 static inline uint64_t calibrate_size(long size) {
   uint64_t size_calibrated = 0;
   if (size < 0)
@@ -652,7 +673,7 @@ static cudaError_t attach_region(struct mps_region *rgn) {
       return ret;
     }
   }
-  // TODO: evict and try to allocate gpu memory again
+  // TODO: if out of memory, evict and try to allocate gpu memory again
   mqx_print(DEBUG, "cuMemAlloc %lu bytes @ %p", rgn->size, (void *)rgn->gpu_addr);
   pglobal->gpumem_used += calibrate_size(rgn->size);
   __sync_fetch_and_add(&rgn->using_kernels, 1);
@@ -736,7 +757,6 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
   ASSERT(kconf->nargs >= 0 && kconf->nargs <= MAX_ARGS, "invalid number of arguments(%d)", kconf->nargs);
 
   // get upper bound of unique regions number
-  // TODO: column data
   for (int i = 0; i < kconf->nargs; i++) {
     if (kconf->kargs[i].is_dptr) {
       nrgns_upper_bound++;
@@ -837,7 +857,7 @@ begin:
     case ZOMBIE:
       pthread_mutex_unlock(&rgn->mm_mutex);
       mqx_print(ERROR, "freeing a zombie region");
-      // TODO: ensure this only happends on shared columns, and means that some other thread has already freed this column when no kernel is using it
+      // TODO: ensure this only happends on shared regions(columns data), and means that some other thread has already freed this column when no kernel is using it
       return cudaSuccess;
   }
 revoke_resources:

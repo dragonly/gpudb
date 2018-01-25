@@ -6,25 +6,16 @@
 #include "libmpsclient.h"
 #include "common.h"
 
-cudaError_t (*nv_cudaMalloc)(void **, size_t) = NULL;
-cudaError_t (*nv_cudaFree)(void *) = NULL;
 cudaError_t (*nv_cudaMemcpy)(void *, const void *, size_t, enum cudaMemcpyKind) = NULL;
-cudaError_t (*nv_cudaSetupArgument)(const void *, size_t, size_t) = NULL;
-cudaError_t (*nv_cudaConfigureCall)(dim3, dim3, size_t, cudaStream_t) = NULL;
-cudaError_t (*nv_cudaLaunch)(const void *) = NULL;
-cudaError_t (*nv_cudaLaunchKernel)(const void*, dim3, dim3, void**, size_t, cudaStream_t);
 
 volatile uint8_t mps_initialized = 0;
 
 __attribute__((constructor)) void mps_init() {
-  DEFAULT_API_POINTER("cudaMalloc", nv_cudaMalloc);
-  DEFAULT_API_POINTER("cudaFree", nv_cudaFree);
   DEFAULT_API_POINTER("cudaMemcpy", nv_cudaMemcpy);
-  DEFAULT_API_POINTER("cudaSetupArgument", nv_cudaSetupArgument);
-  DEFAULT_API_POINTER("cudaConfigureCall", nv_cudaConfigureCall);
-  DEFAULT_API_POINTER("cudaLaunch", nv_cudaLaunch);
-  DEFAULT_API_POINTER("cudaLaunchKernel", nv_cudaLaunchKernel);
-
+  if (nv_cudaMemcpy == NULL) {
+    mqx_print(FATAL, "fail to find CUDA runtime shared library");
+    exit(-1);
+  }
   if (mpsclient_init()) {
     mqx_print(FATAL, "fail to connect to mps server");
     exit(-1);
@@ -56,7 +47,7 @@ cudaError_t cudaMemcpy(void *dst, const void *src, size_t size, enum cudaMemcpyK
       return nv_cudaMemcpy(dst, src, size, kind);
   }
 }
-cudaError_t cudaMemset(void *devPtr, int32_t value, size_t count) {
+cudaError_t cudaMemset(void *devPtr, int value, size_t count) {
   return mpsclient_cudaMemset(devPtr, value, count);
 }
 cudaError_t cudaAdvise(int iarg, int advice) {
@@ -76,5 +67,26 @@ cudaError_t cudaLaunch(const void *func) {
 }
 cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {
   return mpsclient_cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, stream);
+}
+cudaError_t cudaMemGetInfo(size_t *free, size_t *total) {
+  return mpsclient_cudaMemGetInfo(free, total);
+}
+cudaError_t cudaDeviceSynchronize() {
+  return mpsclient_cudaDeviceSynchronize();
+}
+cudaError_t cudaEventCreate(cudaEvent_t *event) {
+  return mpsclient_cudaEventCreate(event);
+}
+cudaError_t cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEvent_t end) {
+  return mpsclient_cudaEventElapsedTime(ms, start, end);
+}
+cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
+  return mpsclient_cudaEventRecord(event, stream);
+}
+cudaError_t cudaEventSynchronize(cudaEvent_t event) {
+  return mpsclient_cudaEventSynchronize(event);
+}
+cudaError_t cudaGetDevice(int *device) {
+  return mpsclient_cudaGetDevice(device);
 }
 

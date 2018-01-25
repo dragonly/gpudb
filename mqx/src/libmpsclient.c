@@ -208,8 +208,71 @@ cudaError_t mpsclient_cudaLaunch(const void *func) {
   CLIENT_REQ_HEAD(0, REQ_CUDA_LAUNCH_KERNEL, 0, 0);
   send(client_socket, buf, payload_size, 0);
   CLIENT_REQ_TAIL(\
-    mqx_print(DEBUG, "cudaLaunch requested"));
+    mqx_print(DEBUG, "kernel launched"));
 }
+cudaError_t mpsclient_cudaMemGetInfo(size_t *mem_free, size_t *mem_total) {
+  CLIENT_REQ_HEAD(0, REQ_CUDA_MEM_GET_INFO, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(size_t) * 2, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = deserialize_uint64(pbuf, mem_free);
+  pbuf = deserialize_uint64(pbuf, mem_total);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "got free and total memory size"));
+}
+cudaError_t mpsclient_cudaDeviceSynchronize() {
+  CLIENT_REQ_HEAD(0, REQ_CUDA_DEVICE_SYNCHRONIZE, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "synchronized"));
+}
+cudaError_t mpsclient_cudaEventCreate(cudaEvent_t *event) {
+  CLIENT_REQ_HEAD(0, REQ_CUDA_EVENT_CREATE, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(cudaEvent_t), 0);
+  deserialize_uint64(buf, (uint64_t *)event);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "event created(%p)", *event));
+}
+cudaError_t mpsclient_cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEvent_t end) {
+  CLIENT_REQ_HEAD(sizeof(start) + sizeof(end), REQ_CUDA_EVENT_ELAPSED_TIME, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint64(pbuf, (uint64_t)start);
+  pbuf = serialize_uint64(pbuf, (uint64_t)end);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(float), 0);
+  deserialize_uint32(buf, (uint32_t *)ms);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "%.2f ms", *ms));
+}
+cudaError_t mpsclient_cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
+  CLIENT_REQ_HEAD(sizeof(event) + sizeof(stream), REQ_CUDA_EVENT_RECORD, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint64(pbuf, (uint64_t)event);
+  pbuf = serialize_uint64(pbuf, (uint64_t)stream);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "event(%p) recorded", event));
+}
+cudaError_t mpsclient_cudaEventSynchronize(cudaEvent_t event) {
+  CLIENT_REQ_HEAD(sizeof(event), REQ_CUDA_EVENT_SYNCHRONIZE, 0, 0);
+  serialize_uint64(buf, (uint64_t)event);
+  send(client_socket, buf, payload_size, 0);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "event(%p) synchronized", event));
+}
+cudaError_t mpsclient_cudaGetDevice(int *device) {
+  CLIENT_REQ_HEAD(0, REQ_CUDA_GET_DEVICE, 0, 0);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(int), 0);
+  deserialize_uint32(buf, (uint32_t *)device);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "current device is %d", *device));
+}
+// test function
 cudaError_t mpsclient_cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {
   struct mps_req req;
   req.type = REQ_CUDA_LAUNCH_KERNEL;

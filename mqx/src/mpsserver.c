@@ -354,7 +354,7 @@ void *worker_thread(void *client_socket) {
         pbuf = deserialize_uint64(pbuf, &count);
         cudaError_t ret = mpsserver_cudaMemset(client, devPtr, value, count);
         serialize_uint32(buf, ret);
-        send(socket, buf, sizeof(cudaError_t), 0);
+        send(socket, buf, sizeof(ret), 0);
       } break;
       case REQ_CUDA_ADVISE: {
         uint8_t iarg;
@@ -411,6 +411,66 @@ void *worker_thread(void *client_socket) {
         cudaError_t ret = mpsserver_cudaLaunchKernel(client);
         serialize_uint32(buf, ret);
         send(socket, buf, 4, 0);
+      } break;
+      case REQ_CUDA_MEM_GET_INFO: {
+        size_t mem_free;
+        size_t mem_total;
+        cudaError_t ret = mpsserver_cudaMemGetInfo(&mem_free, &mem_total);
+        pbuf = buf;
+        pbuf = serialize_uint64(pbuf, mem_free);
+        pbuf = serialize_uint64(pbuf, mem_total);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(mem_free) + sizeof(mem_total) + sizeof(ret), 0);
+      } break;
+      case REQ_CUDA_DEVICE_SYNCHRONIZE: {
+        cudaError_t ret = mpsserver_cudaDeviceSynchronize(client);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
+      } break;
+      case REQ_CUDA_EVENT_CREATE: {
+        cudaEvent_t *event = NULL;
+        cudaError_t ret = mpsserver_cudaEventCreate(event);
+        pbuf = buf;
+        pbuf = serialize_uint64(pbuf, (uint64_t)*event);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(cudaEvent_t) + sizeof(ret), 0);
+      } break;
+      case REQ_CUDA_EVENT_ELAPSED_TIME: {
+        cudaEvent_t start, end;
+        float *ms = 0;
+        pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&start);
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&end);
+        cudaError_t ret = mpsserver_cudaEventElapsedTime(ms, start, end);
+        pbuf = buf;
+        pbuf = serialize_uint32(pbuf, *ms);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(float) + sizeof(cudaError_t), 0);
+      } break;
+      case REQ_CUDA_EVENT_RECORD: {
+        cudaEvent_t event;
+        cudaStream_t stream;
+        pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&event);
+        pbuf = deserialize_uint64(pbuf, (uint64_t *)&stream);
+        cudaError_t ret = mpsserver_cudaEventRecord(client, event, stream);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
+      } break;
+      case REQ_CUDA_EVENT_SYNCHRONIZE: {
+        cudaEvent_t event;
+        deserialize_uint64(buf, (uint64_t *)&event);
+        cudaError_t ret = mpsserver_cudaEventSynchronize(event);
+        serialize_uint32(buf, ret);
+        send(socket, buf, 4, 0);
+      } break;
+      case REQ_CUDA_GET_DEVICE: {
+        int device = -1;
+        cudaError_t ret = mpsserver_cudaGetDevice(&device);
+        pbuf = buf;
+        pbuf = serialize_uint32(pbuf, device);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(int) + sizeof(cudaError_t), 0);
       } break;
       case REQ_TEST_CUDA_LAUNCH_KERNEL: {
         struct kernel_args kargs;

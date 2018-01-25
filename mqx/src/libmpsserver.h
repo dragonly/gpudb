@@ -86,7 +86,13 @@ cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index);
 cudaError_t mpsserver_cudaConfigureCall(struct mps_client *client, dim3 gridDim, dim3 blockDim, size_t sharedMem, CUstream stream);
 cudaError_t mpsserver_cudaSetupArgument(struct mps_client *client, void *arg, size_t size, size_t offset);
 cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client);
-int recv_large_buf(int socket, unsigned char *buf, uint32_t size);
+cudaError_t mpsserver_cudaMemGetInfo(size_t *free, size_t *total);
+cudaError_t mpsserver_cudaDeviceSynchronize(struct mps_client *client);
+cudaError_t mpsserver_cudaEventCreate(cudaEvent_t *event);
+cudaError_t mpsserver_cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEvent_t end);
+cudaError_t mpsserver_cudaEventRecord(struct mps_client *client, cudaEvent_t event, cudaStream_t stream);
+cudaError_t mpsserver_cudaEventSynchronize(cudaEvent_t event);
+cudaError_t mpsserver_cudaGetDevice(int *device);
 int dma_channel_init(struct mps_dma_channel *channel, int isHtoD);
 void dma_channel_destroy(struct mps_dma_channel *channel);
 
