@@ -40,6 +40,9 @@ depend : .depend
 # No rules for source files
 %.c: ;
 
+reader: column_reader.c
+	gcc column_reader.c -I/usr/local/cuda/include -o reader
+
 mpsserver : mpsserver.o common.o serialize.o libmpsserver.o libmps.o
 	$(NVCC) -lcuda -arch=sm_61 $^ -o $@
 

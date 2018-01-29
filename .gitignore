@@ -9,6 +9,7 @@
 .metadata
 log
 mps_testclient
+reader
 vectorAdd
 mpsserver
 gpuDBLoader
