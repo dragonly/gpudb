@@ -30,8 +30,6 @@
 	#define GMM_CALL(_f)	
 #endif
 
-void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp);
-
 #define CHECK_POINTER(p)                                                                                               \
   do {                                                                                                                 \
     if (p == NULL) {                                                                                                   \
@@ -49,12 +47,12 @@ enum {
     UNCOMPRESSED,
 
 /* data type supported in schema */
-    INT,
+    INT, /* 4 */
     FLOAT,
     STRING,
 
 /* supported relation in exp */
-    EQ,
+    EQ, /* 7 */
     GTH,
     LTH,
     GEQ,
@@ -62,29 +60,29 @@ enum {
     NOT_EQ,
 
 /* for where condition */
-    AND ,
+    AND, /* 13 */
     OR,
     EXP,
 
 /* supported groupby function */
-    MIN,
+    MIN, /* 16 */
     MAX,
     COUNT,
     SUM,
     AVG,
 
 /* supported math operation */
-    PLUS,
+    PLUS, /* 21 */
     MINUS,
     MULTIPLY,
     DIVIDE,
 
 /* op type for mathExp */
-    COLUMN,
+    COLUMN, /* 25 */
     CONS,
 
 /* data position */
-    GPU,
+    GPU, /* 27 */
     MEM,
     PINNED,
     UVA,
@@ -93,7 +91,7 @@ enum {
     TMPFILE,
 
 /* order by sequence */
-    ASC,
+    ASC, /* 34 */
     DESC,
 
     NOOP
@@ -229,5 +227,6 @@ struct statistic{
     float total;
 };
 
+void scanImpl(int *d_input, int rLen, int *d_output, struct statistic *pp);
 
 #endif

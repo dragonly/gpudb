@@ -21,27 +21,27 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-#define CUDA_SAFE_CALL_NO_SYNC( call) do {                                \
-    cudaError err = call;                                                    \
-    if( cudaSuccess != err) {                                                \
-        fprintf(stderr, "Cuda error in file '%s' in line %i : %s.\n",        \
-                __FILE__, __LINE__, cudaGetErrorString( err) );              \
-        exit(EXIT_FAILURE);                                                  \
+#define CUDA_SAFE_CALL_NO_SYNC( call) do {                               \
+    cudaError_t err = call;                                              \
+    if( cudaSuccess != err) {                                            \
+        fprintf(stderr, "Cuda error in file '%s' in line %i : %s.\n",    \
+                __FILE__, __LINE__, cudaGetErrorString( err) );          \
+        exit(EXIT_FAILURE);                                              \
     } } while (0)
 
-#define CUDA_SAFE_CALL( call) do {                                        \
-    CUDA_SAFE_CALL_NO_SYNC(call);                                            \
-    cudaError err = cudaDeviceSynchronize();                                 \
-    if( cudaSuccess != err) {                                                \
-        fprintf(stderr, "Cuda error in file '%s' in line %i : %s.\n",        \
-                __FILE__, __LINE__, cudaGetErrorString( err) );              \
-        exit(EXIT_FAILURE);                                                  \
+#define CUDA_SAFE_CALL( call) do {                                       \
+    CUDA_SAFE_CALL_NO_SYNC(call);                                        \
+    cudaError_t err = cudaDeviceSynchronize();                           \
+    if( cudaSuccess != err) {                                            \
+        fprintf(stderr, "Cuda error in file '%s' in line %i : %s.\n",    \
+                __FILE__, __LINE__, cudaGetErrorString( err) );          \
+        exit(EXIT_FAILURE);                                              \
     } } while (0)
 
 
-#define CUDA_SAFE_CALL_NO_SYNC_RETRY( call) do {                                \
-    cudaError err = call;                                                    \
-    while( cudaSuccess != err) {                                                \
+#define CUDA_SAFE_CALL_NO_SYNC_RETRY( call) do {                         \
+    cudaError_t err = call;                                              \
+    while( cudaSuccess != err) {                                         \
     err = call;                             \
     } } while (0)
 

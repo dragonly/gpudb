@@ -1,10 +1,10 @@
-#include <stdint.h>
-#include <stdio.h>
 #include <cuda.h>
 #include <cuda_runtime_api.h>
+#include <stdint.h>
+#include <stdio.h>
+#include "common.h"
 #include "interfaces.h"
 #include "libmpsclient.h"
-#include "common.h"
 
 cudaError_t (*nv_cudaMemcpy)(void *, const void *, size_t, enum cudaMemcpyKind) = NULL;
 
@@ -88,5 +88,11 @@ cudaError_t cudaEventSynchronize(cudaEvent_t event) {
 }
 cudaError_t cudaGetDevice(int *device) {
   return mpsclient_cudaGetDevice(device);
+}
+cudaError_t cudaGetColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock) {
+  return mpsclient_cudaGetColumnBlockAddress(devPtr, colname, iblock);
+}
+cudaError_t cudaGetColumnBlockHeader(struct columnHeader *pheader, const char *colname, uint32_t iblock) {
+  return mpsclient_cudaGetColumnBlockHeader(pheader, colname, iblock);
 }
 

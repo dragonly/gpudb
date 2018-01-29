@@ -2,7 +2,6 @@
 function gen_h() {
   echo "#ifndef __KERNEL_SYMBOLS_H_"
   echo "#define __KERNEL_SYMBOLS_H_"
-  echo
   #cuobjdump -symbols ops.cubin | grep -v "STB_LOCAL" | grep "STO_ENTRY" | awk '{print $4}' | sort | awk '{print "static CUfunction F_" $1 ";"}'
   echo
   n=`cuobjdump -symbols ops.cubin | grep -v "STB_LOCAL" | grep "STO_ENTRY" | wc -l`

@@ -20,26 +20,25 @@
  * THE SOFTWARE.
  */
 
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
-#include <signal.h>
-#include <cuda.h>
-#include <cuda_runtime_api.h>
-#include <pthread.h>
 #include "common.h"
-#include "protocol.h"
 #include "kernel_symbols.h"
-#include "serialize.h"
-#include "libmpsserver.h"
 #include "libmps.h"
-#include "list.h"
+#include "libmpsserver.h"
+#include "serialize.h"
 
 const char *mod_file_name = "ops.cubin";
 static CUcontext cudaContext;
@@ -97,11 +96,125 @@ void sigint_handler(int signum) {
   exit(0);
 }
 
+static const int ntables = 5;
+static char *table_names[] = { "CUSTOMER", "DDATE", "LINEORDER", "PART", "SUPPLIER" };
+static uint8_t table_columns[] = { 8, 17, 17, 9, 7 };
+struct column_data shared_columns[NCOLUMN] = {0};
+static char datadir[1024];
+static void _append_int_as_str(char *str, uint32_t i) {
+  char buf[32];
+  int n = 0;
+  size_t len = strlen(str);
+  uint8_t digit;
+  while (1) {
+    digit = i % 10;
+    i /= 10;
+    buf[n++] = digit + '0';
+    if (i == 0) {
+      break;
+    }
+  }
+  for (i = 0; i < n; i++) {
+    str[len + i] = buf[n - 1 - i];
+  }
+  str[len + n] = 0;
+}
+cudaError_t preload_columns() {
+  int n = strlen(datadir);
+  // remove all trailing forward slashes
+  {
+    int i;
+    for (i = n - 1; i > -1; i--) {
+      if (datadir[i] == '/') {
+        datadir[i] = 0;
+      } else {
+        break;
+      }
+    }
+    datadir[++i]= '/';
+    datadir[++i] = 0;
+  }
+  cudaError_t ret;
+  int fd;
+  char filename[1024];
+  struct columnHeader header;
+  uint64_t nblocks;
+  void *pswap;
+  char *col_buf = malloc(512 * 1024 * 1024);
+  int ncol = 0;
+  for (int t = 0; t < ntables; t++) {  // table
+    for (int c = 0; c < table_columns[t]; c++, ncol++) {  // column
+      strcpy(shared_columns[ncol].name, table_names[t]);
+      n = strlen(shared_columns[ncol].name);
+      // shared_columns[ncol].name[n++] = c + '0';
+      // shared_columns[ncol].name[n++] = 0;
+      _append_int_as_str(shared_columns[ncol].name, c);
+
+      strcpy(filename, datadir);
+      strcat(filename, table_names[t]);
+      n = strlen(filename);
+      // filename[n++] = c + '0';
+      // filename[n++] = 0;
+      _append_int_as_str(filename, c);
+      mqx_print(DEBUG, "loading %s", filename);
+
+      if ((fd = open(filename, O_RDONLY)) == -1) {
+        printf("error reading file %s: %s", filename, strerror(errno));
+        return -1;
+      }
+      read(fd, &header, sizeof(struct columnHeader));
+      nblocks = header.blockTotal;
+      shared_columns[ncol].headers = (struct columnHeader *)malloc(sizeof(struct columnHeader) * nblocks);
+      shared_columns[ncol].prgns = malloc(sizeof(void *) * nblocks);
+      lseek(fd, 0, SEEK_SET);
+
+      for (int i = 0; i < nblocks; i++) {  // column block
+        mqx_print(DEBUG, "loading block %d", i);
+        read(fd, &header, sizeof(struct columnHeader));
+        memcpy(&shared_columns[ncol].headers[i], &header, sizeof(struct columnHeader));
+
+        read(fd, col_buf, header.blockSize);
+        if ((ret = mpsserver_cudaMalloc(&pswap, header.blockSize, 0)) != cudaSuccess) {
+          mqx_print(FATAL, "cudaMalloc error(%d)", ret);
+          return ret;
+        }
+        if ((ret = mpsserver_cudaMemcpy(NULL, pswap, col_buf, header.blockSize, cudaMemcpyHostToDevice)) != cudaSuccess) {
+          mqx_print(FATAL, "cudaMemcpy error(%d)", ret);
+          return ret;
+        }
+        shared_columns[ncol].prgns[i] = find_allocated_region(pglobal, pswap);
+        shared_columns[ncol].prgns[i]->flags |= FLAG_PERSIST;
+      }
+      close(fd);
+    }
+  }
+  mqx_print(INFO, "all %d columns loaded", ncol);
+  return cudaSuccess;
+}
+
 int main(int argc, char **argv) {
   if (initCUDA() == -1) goto fail_cuda;
-  //mqx_print(DEBUG, "early exit for debugging");
-  //exit(0);
+  //mqx_print(DEBUG, "early exit for debugging"); exit(0);
+  
+  int opt;
+  char *optstr = "d:";
+  struct option options[1];
+  memset(options, 0, sizeof(struct option) * 1);
+  options[0].name = "datadir";
+  options[0].val = 'd';
+  options[0].has_arg = 1;
+  while ((opt = getopt_long(argc, argv, optstr, options, NULL)) != -1) {
+    switch (opt) {
+      case 'd':
+        strcpy(datadir, optarg);
+        break;
+      default:
+        mqx_print(FATAL, "unknown option %c", optopt);
+        exit(-1);
+    }
+  }
 
+  // TODO: remove shm call
   mqx_print(DEBUG, "opening shared memory");
   shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR, 0);
   if (shmfd == -1) {
@@ -127,13 +240,14 @@ int main(int argc, char **argv) {
   INIT_LIST_HEAD(&pglobal->allocated_regions);
   INIT_LIST_HEAD(&pglobal->attached_regions);
 
-  int server_socket;
-  struct sockaddr_un server;
-
   signal(SIGINT, sigint_handler);
   signal(SIGKILL, sigint_handler);
 
+  if (preload_columns() != cudaSuccess) goto fail_load_col;
+
   mqx_print(DEBUG, "initializing server socket");
+  int server_socket;
+  struct sockaddr_un server;
   server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socket < 0) {
     mqx_print(DEBUG, "opening server socket: %s", strerror(errno));
@@ -197,6 +311,7 @@ fail_create_socket:
 fail_mmap:
   close(shmfd);
 fail_shm:
+fail_load_col:
 fail_cuda:
   checkCudaErrors(cuCtxDestroy(cudaContext));
 }
@@ -230,11 +345,12 @@ void *worker_thread(void *client_socket) {
   
   int rret;
   int socket = *(int *)client_socket;
-  unsigned char buf[MAX_BUFFER_SIZE];
+  uint8_t buf[MAX_BUFFER_SIZE];
   memset(buf, 0, MAX_BUFFER_SIZE);
+  char colname[32];
   struct mps_req req;
   uint16_t len;
-  unsigned char *pbuf;
+  uint8_t *pbuf;
 
   while (1) {
     // read request header
@@ -273,7 +389,6 @@ void *worker_thread(void *client_socket) {
         pbuf = buf;
         pbuf = serialize_uint64(pbuf, (uint64_t)devPtr);
         pbuf = serialize_uint32(pbuf, ret);
-        mqx_print(DEBUG, "REQ_CUDA_MALLOC: devPtr(%p) size(%zu) ret(%d)", devPtr, size, ret);
         send(socket, buf, sizeof(devPtr) + sizeof(ret), 0);
       } break;
       case REQ_CUDA_MEMFREE: {
@@ -471,6 +586,41 @@ void *worker_thread(void *client_socket) {
         pbuf = serialize_uint32(pbuf, ret);
         send(socket, buf, sizeof(int) + sizeof(cudaError_t), 0);
       } break;
+      case REQ_CUDA_GET_COLUMN_BLOCK_ADDRESS: {
+        void *block_addr;
+        size_t len;
+        uint32_t iblock;
+        pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, &len);
+        pbuf = deserialize_str(pbuf, (uint8_t *)colname, len);
+        colname[len] = 0;
+        pbuf = deserialize_uint32(pbuf, &iblock);
+        cudaError_t ret = mpsserver_getColumnBlockAddress(&block_addr, colname, iblock);
+        pbuf = buf;
+        pbuf = serialize_uint64(pbuf, (uint64_t)block_addr);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(uint64_t) + sizeof(cudaError_t), 0);
+      } break;
+      case REQ_CUDA_GET_COLUMN_BLOCK_HEADER: {
+        size_t len;
+        uint32_t iblock;
+        struct columnHeader *pheader;
+        pbuf = buf;
+        pbuf = deserialize_uint64(pbuf, &len);
+        pbuf = deserialize_str(pbuf, (uint8_t *)colname, len);
+        colname[len] = 0;
+        pbuf = deserialize_uint32(pbuf, &iblock);
+        cudaError_t ret = mpsserver_getColumnBlockHeader(&pheader, colname, iblock);
+        pbuf = buf;
+        pbuf = serialize_uint64(pbuf, pheader->totalTupleNum);
+        pbuf = serialize_uint64(pbuf, pheader->tupleNum);
+        pbuf = serialize_uint64(pbuf, pheader->blockSize);
+        pbuf = serialize_uint32(pbuf, pheader->blockTotal);
+        pbuf = serialize_uint32(pbuf, pheader->blockId);
+        pbuf = serialize_uint32(pbuf, pheader->format);
+        pbuf = serialize_uint32(pbuf, ret);
+        send(socket, buf, sizeof(uint64_t) * 3 + sizeof(uint32_t) * 3 + sizeof(cudaError_t), 0);
+      } break;
       case REQ_TEST_CUDA_LAUNCH_KERNEL: {
         struct kernel_args kargs;
         uint64_t nargs, offset; 
@@ -517,6 +667,6 @@ finish:
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
-  mqx_print(INFO, "++++++++++++++++ worker thread exit (%d/%d)    ++++++++++++++++", client_id, pglobal->mps_nclients);
+  mqx_print(INFO, "++++++++++++++++ worker thread exit    (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
   return NULL;
 }

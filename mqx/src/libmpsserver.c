@@ -14,7 +14,6 @@
 
 
 // foward declarations of internal functions
-static struct mps_region *find_allocated_region(struct global_context*, const void*);
 static void add_allocated_region(struct mps_region*);
 static void remove_allocated_region(struct mps_region *rgn);
 static void add_attached_region(struct mps_region*);
@@ -55,8 +54,38 @@ static inline uint64_t gpu_freemem();
 // in mpsserver.c
 extern struct global_context *pglobal;
 extern CUfunction F_vectorAdd;
-const char *_err_buf;
+extern const char *datadir;
 
+const char *_err_buf;
+extern struct column_data shared_columns[NCOLUMN];
+
+cudaError_t mpsserver_getColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock) {
+  for (int i = 0; i < NCOLUMN; i++) {
+    if (strcmp(colname, shared_columns[i].name) == 0) {
+      *devPtr = shared_columns[i].prgns[iblock]->swap_addr;
+      if (*devPtr == NULL) {
+        mqx_print(FATAL, "column %s(%d) is NULL", colname, iblock);
+        return cudaErrorUnknown;
+      }
+      mqx_print(DEBUG, "%s(%d) address(%p)", colname, iblock, *devPtr);
+      return cudaSuccess;
+    }
+  }
+  mqx_print(WARN, "column not found (%s)", colname);
+  return cudaErrorInvalidValue;
+}
+cudaError_t mpsserver_getColumnBlockHeader(struct columnHeader **pheader, const char *colname, uint32_t iblock) {
+  for (int i = 0; i < NCOLUMN; i++) {
+    if (strcmp(colname, shared_columns[i].name) == 0) {
+      *pheader = &shared_columns[i].headers[iblock];
+      struct columnHeader *ph = *pheader;
+      mqx_print(DEBUG, "%s totalTupleNum(%lu) tupleNum(%lu) blockSize(%lu) blockTotal(%d) blockId(%d) format(%d)", colname, ph->totalTupleNum, ph->tupleNum, ph->blockSize, ph->blockTotal, ph->blockId, ph->format);
+      return cudaSuccess;
+    }
+  }
+  mqx_print(WARN, "column not found (%s)", colname);
+  return cudaErrorInvalidValue;
+}
 cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   if (size == 0) {
     mqx_print(WARN, "allocating 0 bytes");
@@ -94,6 +123,7 @@ cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   rgn->freq = 0;
   add_allocated_region(rgn);
   *devPtr = rgn->swap_addr;
+  mqx_print(DEBUG, "devPtr(%p) size(%zu)", *devPtr, size);
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemGetInfo(size_t *free, size_t *total) {
@@ -129,7 +159,7 @@ cudaError_t mpsserver_cudaFree(void *devPtr) {
   if ((ret = free_region(rgn) != cudaSuccess)) {
     return ret;
   }
-  mqx_print_region(DEBUG, rgn, "mpsserver_cudaFree success");
+  mqx_print_region(DEBUG, rgn, "success");
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
@@ -274,6 +304,7 @@ static cudaError_t mpsserver_memset_block(struct mps_client *client, struct mps_
 }
 cudaError_t mpsserver_cudaSetFunction(struct mps_client *client, int index) {
   client->kconf.func_index = index;
+  mqx_print(DEBUG, "<%s>[%d]", fname_table[index], index);
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaAdvise(struct mps_client *client, int iarg, int advice) {
@@ -639,7 +670,7 @@ static cudaError_t attach_regions(struct mps_region **rgns, uint32_t nrgns) {
   mqx_print(DEBUG, "successfully attached %d regions", nrgns);
   return ret;
 fail:
-// TODO: detach all regions
+// TODO: detach all regions on failure
   return ret;
 }
 // TODO: this is copied directly from libmqx and is said for GTX580, further inspection needed
@@ -730,7 +761,7 @@ static void remove_attached_region(struct mps_region *rgn) {
   list_del(&rgn->entry_attach);
   pthread_mutex_unlock(&pglobal->attach_mutex);
 }
-static struct mps_region *find_allocated_region(struct global_context *pglobal, const void *ptr) {
+struct mps_region *find_allocated_region(struct global_context *pglobal, const void *ptr) {
   uint64_t addr = (uint64_t)ptr;
   uint64_t start_addr, end_addr;
   struct list_head *pos;
@@ -833,6 +864,10 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
 }
 static cudaError_t free_region(struct mps_region *rgn) {
   uint8_t yielded = 0;
+  if (rgn->flags & FLAG_PERSIST) {
+    mqx_print_region(DEBUG, rgn, "freeing a PERSIST region");
+    return cudaSuccess;
+  }
 begin:
   pthread_mutex_lock(&rgn->mm_mutex);
   switch (rgn->state) {
@@ -856,14 +891,14 @@ begin:
       sched_yield();
       goto begin;
     case EVICTED:
-      mqx_print(DEBUG, "freeing an evicted region, just do it");
+      mqx_print(DEBUG, "freeing an EVICTED region, just do it");
       goto revoke_resources;
     case DETACHED:
-      mqx_print(DEBUG, "freeing a detached region");
+      mqx_print(DEBUG, "freeing a DETACHED region");
       goto revoke_resources;
     case ZOMBIE:
       pthread_mutex_unlock(&rgn->mm_mutex);
-      mqx_print(ERROR, "freeing a zombie region");
+      mqx_print(ERROR, "freeing a ZOMBIE region");
       // TODO: ensure this only happends on shared regions(columns data), and means that some other thread has already freed this column when no kernel is using it
       return cudaSuccess;
   }
@@ -1303,7 +1338,7 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
       mqx_print(ERROR, "attach region failed");
       goto end;
     }
-    mqx_print(DEBUG, "rgn_dst is DETACHED, may be only just `cudaMalloc`ed, so attach it");
+    mqx_print(DEBUG, "rgn_dst is DETACHED, may have only just been `cudaMalloc`ed, so attach it");
     pthread_mutex_lock(&rgn_dst->mm_mutex);
     // NOTE: using_kernel is increased after a successful region attachment, but no kernel is actually using it, and it cannot be decreased by any kernel callback because it is attached here, just for DtoD memcpy but not before a kernel launch. so maybe we can decrease it by one here
     __sync_fetch_and_sub(&rgn_dst->using_kernels, 1);
@@ -1356,6 +1391,7 @@ end:
 static cudaError_t mpsserver_cudaMemcpyDefault(struct mps_client *client, void *dst, void *src, size_t size) {
   return cudaErrorNotYetImplemented;
 }
+// TODO: change runtime api to driver api calls for dma_channel
 int dma_channel_init(struct mps_dma_channel *channel, int isHtoD) {
   int i;
   channel->ibuf = 0;

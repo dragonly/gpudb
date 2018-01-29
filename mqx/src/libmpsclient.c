@@ -11,10 +11,9 @@
 // TODO: check all kinds of pointers
 // TODO: statistics
 
+static uint8_t buf[1024];
 #define CLIENT_REQ_HEAD(LEN, REQ_TYPE, ROUND, LAST_LEN) \
-  uint32_t buf_size = max((LEN), MPS_REQ_SIZE);         \
   uint32_t payload_size = (LEN);                        \
-  uint8_t *buf = malloc(buf_size);                      \
   struct mps_req req;                                   \
   req.type = REQ_TYPE;                                  \
   req.len = (LEN);                                      \
@@ -27,7 +26,6 @@
   cudaError_t ret;                          \
   recv(client_socket, buf, sizeof(ret), 0); \
   deserialize_uint32(buf, &ret);            \
-  free(buf);                                \
   EXTRA_STMT;                               \
   return ret;
 
@@ -48,7 +46,7 @@ int mpsclient_init() {
     perror("conencting server socket");
     return -1;
   }
-  mqx_print(DEBUG, "connected\n");
+  mqx_print(DEBUG, "connected");
   return 0;
 }
 cudaError_t mpsclient_destroy() {
@@ -271,6 +269,39 @@ cudaError_t mpsclient_cudaGetDevice(int *device) {
   deserialize_uint32(buf, (uint32_t *)device);
   CLIENT_REQ_TAIL(\
     mqx_print(DEBUG, "current device is %d", *device));
+}
+cudaError_t mpsclient_cudaGetColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock) {
+  CLIENT_REQ_HEAD(strlen(colname) + sizeof(size_t) + sizeof(iblock), REQ_CUDA_GET_COLUMN_BLOCK_ADDRESS, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint64(pbuf, strlen(colname));
+  pbuf = serialize_str(pbuf, (uint8_t *)colname, strlen(colname));
+  pbuf = serialize_uint32(pbuf, iblock);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(void *), 0);
+  deserialize_uint64(buf, (uint64_t *)devPtr);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "%p", *devPtr));
+}
+// the received payload is larger than the sent one, which breaks this buggy design. oops...
+cudaError_t mpsclient_cudaGetColumnBlockHeader(struct columnHeader *pheader, const char *colname, uint32_t iblock) {
+  CLIENT_REQ_HEAD(sizeof(size_t) + strlen(colname) + sizeof(iblock), REQ_CUDA_GET_COLUMN_BLOCK_HEADER, 0, 0);
+  uint8_t *pbuf;
+  pbuf = buf;
+  pbuf = serialize_uint64(pbuf, strlen(colname));
+  pbuf = serialize_str(pbuf, (uint8_t *)colname, strlen(colname));
+  pbuf = serialize_uint32(pbuf, iblock);
+  send(client_socket, buf, payload_size, 0);
+  recv(client_socket, buf, sizeof(uint64_t) * 3 + sizeof(uint32_t) * 3, 0);
+  pbuf = buf;
+  pbuf = deserialize_uint64(pbuf, (uint64_t *)&pheader->totalTupleNum);
+  pbuf = deserialize_uint64(pbuf, (uint64_t *)&pheader->tupleNum);
+  pbuf = deserialize_uint64(pbuf, (uint64_t *)&pheader->blockSize);
+  pbuf = deserialize_uint32(pbuf, (uint32_t *)&pheader->blockTotal);
+  pbuf = deserialize_uint32(pbuf, (uint32_t *)&pheader->blockId);
+  pbuf = deserialize_uint32(pbuf, (uint32_t *)&pheader->format);
+  CLIENT_REQ_TAIL(\
+    mqx_print(DEBUG, "%s totalTupleNum(%lu) tupleNum(%lu) blockSize(%lu) blockTotal(%d) blockId(%d) format(%d)", colname, pheader->totalTupleNum, pheader->tupleNum, pheader->blockSize, pheader->blockTotal, pheader->blockId, pheader->format));
 }
 // test function
 cudaError_t mpsclient_cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {

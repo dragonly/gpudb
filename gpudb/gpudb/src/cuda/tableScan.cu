@@ -1088,6 +1088,8 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
      * We will allocate GPU device memory for a column if it is stored in the host pageable or pinned memory.
      * If it is configured to utilize the UVA technique, no GPU device memory will be allocated.
      */
+    // NOTE: now in libmps, the column data is allocated in the server and can be shared readonly among all clients
+    //       so dataPos can be GPU in TableScan now, which should expect to get the source data from disk before
 
     if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED)
       CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&column[whereIndex], sn->tn->attrTotalSize[index]));
@@ -1101,7 +1103,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-      } else if (sn->tn->dataPos[index] == UVA) {
+      } else if (sn->tn->dataPos[index] == UVA || sn->tn->dataPos[index] == GPU) {
         column[whereIndex] = sn->tn->content[index];
       }
 
@@ -1212,7 +1214,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-      } else if (sn->tn->dataPos[index] == UVA) {
+      } else if (sn->tn->dataPos[index] == UVA || sn->tn->dataPos[index] == GPU) {
         column[whereIndex] = sn->tn->content[index];
       }
 
@@ -1236,7 +1238,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-      } else if (sn->tn->dataPos[index] == UVA) {
+      } else if (sn->tn->dataPos[index] == UVA || sn->tn->dataPos[index] == GPU) {
         column[whereIndex] = sn->tn->content[index];
       }
 
@@ -1305,7 +1307,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
             // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
             CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                               (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-          } else if (sn->tn->dataPos[index] == UVA) {
+          } else if (sn->tn->dataPos[index] == UVA || sn->tn->dataPos[index] == GPU) {
             column[whereIndex] = sn->tn->content[index];
           }
 
@@ -1335,7 +1337,7 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
             // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
             CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                               (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
-          } else if (sn->tn->dataPos[index] == UVA) {
+          } else if (sn->tn->dataPos[index] == UVA || sn->tn->dataPos[index] == GPU) {
             column[whereIndex] = sn->tn->content[index];
           }
         }

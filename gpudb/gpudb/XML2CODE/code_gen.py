@@ -51,6 +51,8 @@ CODETYPE = config.CODETYPE
 PID = config.PID
 DTYPE = config.DTYPE
 
+HAS_MPS = POS == 4 and CODETYPE == 0
+
 """
 Generate C style declaration of a given column.
 The name of the variable is the lower cased column name.
@@ -738,7 +740,7 @@ def generate_code(tree):
         print "Error! The value of CODETYPE can only be 0 or 1."
         exit(-1)
 
-    if POS not in [0,1,2,3]:
+    if POS not in [0,1,2,3,4]:
         print "Error! The value of POS can only be 0,1,2,3."
         exit(-1)
 
@@ -913,9 +915,11 @@ def generate_code(tree):
         print >>fo, "\tstruct tableNode *" + tn.table_name.lower() +"Table;"
 
     print >>fo, "\tint outFd;"
-    print >>fo, "\tlong outSize;"
-    print >>fo, "\tchar *outTable;"
-    print >>fo, "\tlong offset, tupleOffset;"
+    if not HAS_MPS:
+        print >>fo, "\tlong outSize;"
+        print >>fo, "\tchar *outTable;"
+        print >>fo, "\tlong offset;"
+    print >>fo, "\tlong tupleOffset;"
     print >>fo, "\tint blockTotal;"
     print >>fo, "\tstruct columnHeader header;\n"
 
@@ -934,6 +938,11 @@ def generate_code(tree):
 
         selectList = tn.select_list.tmp_exp_list
 
+        _line = "\t// columns: "
+        for col in colList:
+            # print col.column_name, col.column_type, col.table_name
+            _line = _line + col.table_name + str(col.column_name) + ", "
+        print >>fo, _line[:-2]
         for i in range(0,totalAttr):
             col = colList[i]
             ctype = to_ctype(col.column_type)
@@ -947,10 +956,11 @@ def generate_code(tree):
             if setTupleNum == 0:
                 setTupleNum = 1
                 print >>fo, "\tblockTotal = header.blockTotal;"
-                print >>fo, "\tclose(outFd);"
+                print >>fo, "\tclose(outFd);\n"
                 break
 
-        print >>fo, "\toffset=0;"
+        if not HAS_MPS:
+            print >>fo, "\toffset=0;"
         print >>fo, "\ttupleOffset=0;"
         print >>fo, "\tstruct tableNode *" + resName + " = (struct tableNode *)malloc(sizeof(struct tableNode));"
         print >>fo, "\tCHECK_POINTER("+ resName + ");"
@@ -973,10 +983,11 @@ def generate_code(tree):
         print >>fo, "\t\t" + tnName+"->dataFormat = (int *) malloc(sizeof(int)*"+str(totalAttr)+");"
         print >>fo, "\t\tCHECK_POINTER(" + tnName + "->dataFormat);"
         print >>fo, "\t\t" + tnName+"->content = (char **) malloc(sizeof(char *)*"+str(totalAttr)+");"
-        print >>fo, "\t\tCHECK_POINTER(" + tnName + "->content);"
+        print >>fo, "\t\tCHECK_POINTER(" + tnName + "->content);\n"
 
         for i in range(0,totalAttr):
             col = colList[i]
+            colFile = col.table_name + str(col.column_name)
             ctype = to_ctype(col.column_type)
             colIndex = int(col.column_name)
             colLen = type_length(tn.table_name, colIndex, col.column_type)
@@ -994,22 +1005,27 @@ def generate_code(tree):
                 print >>fo, "\t\t" + tnName+"->dataPos[" + str(i) + "] = UVA;"
             elif POS == 3:
                 print >>fo, "\t\t" + tnName+"->dataPos[" + str(i) + "] = MMAP;"
+            elif POS == 4:
+                print >>fo, "\t\t" + tnName+"->dataPos[" + str(i) + "] = GPU;"
             else:
                 print >>fo, "\t\t" + tnName+"->dataPos[" + str(i) + "] = MEM;"
 
-            #>print >>fo, "\t\toutFd = open(\""+tn.table_name+str(colIndex)+"\",O_RDONLY);"
-            print >>fo, "\t\toutFd = open(\""+tn.table_name+str(colIndex)+"\",O_RDWR);"
-            print >>fo, "\t\toffset = i * sizeof(struct columnHeader) + tupleOffset *" + str(colLen) + ";"
-            print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
-            print >>fo, "\t\tread(outFd,&header, sizeof(struct columnHeader));"
-            print >>fo, "\t\toffset += sizeof(struct columnHeader);"
-            print >>fo, "\t\t" + tnName + "->dataFormat[" + str(i) + "] = header.format;"
-
-            print >>fo, "\t\toutSize = header.tupleNum * " + colLen + ";"
-            print >>fo, "\t\t" + tnName + "->attrTotalSize[" + str(i) + "] = outSize;"
-
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
-            print >>fo, "\t\toutTable =(char *) mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);\n"
+            # NOTE: different code for shared columns introduced in mps
+            if HAS_MPS:
+                print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockHeader(&header, "{}", i));'.format(colFile)
+                print >>fo, "\t\t" + tnName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\t" + tnName + "->attrTotalSize[" + str(i) + "] = header.blockSize;"
+            else:
+                print >>fo, "\t\toutFd = open(\""+tn.table_name+str(colIndex)+"\",O_RDONLY);"
+                print >>fo, "\t\toffset = i * sizeof(struct columnHeader) + tupleOffset *" + str(colLen) + ";"
+                print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
+                print >>fo, "\t\tread(outFd,&header, sizeof(struct columnHeader));"
+                print >>fo, "\t\toffset += sizeof(struct columnHeader);"
+                print >>fo, "\t\t" + tnName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\toutSize = header.tupleNum * " + colLen + ";"
+                print >>fo, "\t\t" + tnName + "->attrTotalSize[" + str(i) + "] = outSize;"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
+                print >>fo, "\t\toutTable =(char *) mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
 
             if CODETYPE == 0:
                 if POS == 1:
@@ -1019,8 +1035,9 @@ def generate_code(tree):
                     print >>fo, "\t\tCUDA_SAFE_CALL_NO_SYNC(cudaMallocHost((void **)&" + tnName+"->content["+str(i)+"],outSize));"
                     print >>fo, "\t\tmemcpy("+tnName+"->content["+str(i)+"],outTable,outSize);"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                elif POS == 4:
+                    print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockAddress((void **)&{}->content[{}], "{}", i));'.format(tnName, str(i), colFile)
                 else:
                     print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)memalign(256,outSize);"
                     print >>fo, "\t\tmemcpy("+tnName+"->content["+str(i)+"],outTable,outSize);"
@@ -1030,8 +1047,8 @@ def generate_code(tree):
                     print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)memalign(256,outSize);"
                     print >>fo, "\t\tmemcpy("+tnName+"->content["+str(i)+"],outTable,outSize);"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                    #>print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
                 else:
                     print >>fo, "\t\t"+tnName+"->content["+str(i)+"] = (char *)clCreateBuffer(context.context,CL_MEM_READ_ONLY|CL_MEM_ALLOC_HOST_PTR,outSize,NULL,0);"
                     print >>fo, "\t\tclTmp = clEnqueueMapBuffer(context.queue,(cl_mem)"+tnName+"->content["+str(i)+"],CL_TRUE,CL_MAP_WRITE,0,outSize,0,0,0,0);"
@@ -1039,13 +1056,14 @@ def generate_code(tree):
                     print >>fo, "\t\tclEnqueueUnmapMemObject(context.queue,(cl_mem)"+tnName+"->content["+str(i)+"],clTmp,0,0,0);"
 
 
-            print >>fo, "\t\tmunmap(outTable,outSize);"
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
-            print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
+            if not HAS_MPS:
+                print >>fo, "\t\tmunmap(outTable,outSize);"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
+                print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
+                print >>fo, "\t\tclose(outFd);"
+            print >>fo, ""
 
-            print >>fo, "\t\tclose(outFd);"
-
-        tupleSize += ";\n"
+        tupleSize += ";"
         print >>fo, "\t\t" + tnName + "->tupleSize = " + tupleSize
         print >>fo, "\t\t"+tnName+"->tupleNum = header.tupleNum;"
 
@@ -1201,6 +1219,11 @@ def generate_code(tree):
         generate_col_list(joinAttr.factTables[0],indexList,colList)
         totalAttr = len(indexList)
 
+        _line = "\t// columns: "
+        for col in colList:
+            # print col.column_name, col.column_type, col.table_name
+            _line = _line + col.table_name + str(col.column_name) + ", "
+        print >>fo, _line[:-2]
         for i in range(0,totalAttr):
             col = colList[i]
             if isinstance(col, ystree.YRawColExp):
@@ -1225,15 +1248,16 @@ def generate_code(tree):
                 print >>fo, "\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\",O_RDONLY);"
                 print >>fo, "\tread(outFd, &header, sizeof(struct columnHeader));"
                 print >>fo, "\tblockTotal = header.blockTotal;"
-                print >>fo, "\tclose(outFd);"
+                print >>fo, "\tclose(outFd);\n"
                 break
 
-        print >>fo, "\toffset = 0;"
-        print >>fo, "\tlong blockSize["+str(totalAttr) + "];"
-        print >>fo, "\tfor(int i=0;i<" + str(totalAttr) + ";i++)"
-        print >>fo, "\t\tblockSize[i] = 0;"
-        print >>fo, "\tfor(int i=0;i<blockTotal;i++){\n"
+        if not HAS_MPS:
+            print >>fo, "\toffset = 0;"
+            print >>fo, "\tlong blockSize["+str(totalAttr) + "];"
+            print >>fo, "\tfor(int i=0;i<" + str(totalAttr) + ";i++)"
+            print >>fo, "\t\tblockSize[i] = 0;"
 
+        print >>fo, "\tfor(int i=0;i<blockTotal;i++){"
         print >>fo, "\t\tstruct tableNode *" + factName + " = (struct tableNode*)malloc(sizeof(struct tableNode));"
         print >>fo, "\t\tCHECK_POINTER(" + factName + ");"
         print >>fo, "\t\t" + factName + "->totalAttr = " + str(totalAttr) + ";"
@@ -1250,11 +1274,12 @@ def generate_code(tree):
         print >>fo, "\t\t" + factName + "->dataFormat = (int *) malloc(sizeof(int)*" + str(totalAttr) + ");"
         print >>fo, "\t\tCHECK_POINTER(" + factName + "->dataFormat);"
         print >>fo, "\t\t" + factName + "->content = (char **) malloc(sizeof(char *)*" + str(totalAttr) + ");"
-        print >>fo, "\t\tCHECK_POINTER(" + factName + "->content);"
+        print >>fo, "\t\tCHECK_POINTER(" + factName + "->content);\n"
 
         tupleSize = "0"
         for i in range(0,totalAttr):
             col = colList[i]
+            colFile = col.table_name + str(col.column_name)
             if isinstance(col, ystree.YRawColExp):
                 colType = col.column_type
                 colIndex = col.column_name
@@ -1285,20 +1310,26 @@ def generate_code(tree):
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = UVA;"
             elif POS == 3:
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = MMAP;"
+            elif POS == 4:
+                print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = GPU;"
             else:
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = MEM;"
 
-            #>print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDONLY);"
-            print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDWR);"
-            print >>fo, "\t\toffset = i*sizeof(struct columnHeader) + blockSize[" + str(i) + "];"
-            print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
-            print >>fo, "\t\tread(outFd, &header, sizeof(struct columnHeader));"
-            print >>fo, "\t\tblockSize[" + str(i) + "] += header.blockSize;"
-            print >>fo, "\t\toffset += sizeof(struct columnHeader);"
-            print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
-            print >>fo, "\t\toutSize = header.blockSize;"
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
-            print >>fo, "\t\toutTable = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+            if HAS_MPS:
+                print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockHeader(&header, "{}", i));'.format(colFile)
+                print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\t" + factName + "->attrTotalSize[" + str(i) + "] = header.blockSize;"
+            else:
+                print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDONLY);"
+                print >>fo, "\t\toffset = i*sizeof(struct columnHeader) + blockSize[" + str(i) + "];"
+                print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
+                print >>fo, "\t\tread(outFd, &header, sizeof(struct columnHeader));"
+                print >>fo, "\t\tblockSize[" + str(i) + "] += header.blockSize;"
+                print >>fo, "\t\toffset += sizeof(struct columnHeader);"
+                print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\toutSize = header.blockSize;"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
+                print >>fo, "\t\toutTable = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
 
             if CODETYPE == 0:
                 if POS == 0:
@@ -1312,8 +1343,9 @@ def generate_code(tree):
                     print >>fo, "\t\tCUDA_SAFE_CALL_NO_SYNC(cudaMallocHost((void**)&"+factName+"->content["+str(i)+"],outSize));"
                     print >>fo, "\t\tmemcpy("+factName+"->content["+str(i)+"],outTable,outSize);"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                elif POS == 4:
+                    print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockAddress((void **)&{}->content[{}], "{}", i));'.format(factName, str(i), colFile)
                 else:
                     print >>fo, "\t\t" + factName + "->content[" + str(i) + "] = (char*)memalign(256,outSize);\n"
                     print >>fo, "\t\tmemcpy("+factName+"->content["+str(i)+"],outTable,outSize);"
@@ -1323,8 +1355,8 @@ def generate_code(tree):
                     print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)memalign(256,outSize);"
                     print >>fo, "\t\tmemcpy("+factName+"->content["+str(i)+"],outTable,outSize);"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
                 else:
                     print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)clCreateBuffer(context.context,CL_MEM_READ_ONLY|CL_MEM_ALLOC_HOST_PTR,outSize,NULL,0);"
                     print >>fo, "\t\tclTmp = clEnqueueMapBuffer(context.queue,(cl_mem)"+factName+"->content["+str(i)+"],CL_TRUE,CL_MAP_WRITE,0,outSize,0,0,0,0);"
@@ -1332,16 +1364,16 @@ def generate_code(tree):
                     print >>fo, "\t\tclEnqueueUnmapMemObject(context.queue,(cl_mem)"+factName+"->content["+str(i)+"],clTmp,0,0,0);"
 
 
-            print >>fo, "\t\tmunmap(outTable,outSize);"
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
-            print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
-            print >>fo, "\t\tclose(outFd);"
-            print >>fo, "\t\t" + factName + "->attrTotalSize[" + str(i) + "] = outSize;"
+            if not HAS_MPS:
+                print >>fo, "\t\tmunmap(outTable,outSize);"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
+                print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
+                print >>fo, "\t\tclose(outFd);"
 
-        tupleSize += ";\n"
+        tupleSize += ";"
         print >>fo, "\t\t" + factName + "->tupleSize = " + tupleSize
 
-        print >>fo, "\t\t" + factName + "->tupleNum = header.tupleNum;"
+        print >>fo, "\t\t" + factName + "->tupleNum = header.tupleNum;\n"
 
 ################# end of reading the needed attributes of fact table from disk ###############
 
@@ -1598,6 +1630,11 @@ def generate_code(tree):
         generate_col_list(joinAttr.factTables[0],indexList,colList)
         totalAttr = len(indexList)
 
+        _line = "\t// columns: "
+        for col in colList:
+            # print col.column_name, col.column_type, col.table_name
+            _line = _line + col.table_name + str(col.column_name) + ", "
+        print >>fo, _line[:-2]
         for i in range(0,totalAttr):
             col = colList[i]
             if isinstance(col, ystree.YRawColExp):
@@ -1754,7 +1791,7 @@ def generate_code(tree):
         print >>fo, "\t\tblockSize[i] = 0;"
         print >>fo, "\toffset = 0;\n"
 
-        print >>fo, "\tfor(int i=0;i<blockTotal;i++){\n"
+        print >>fo, "\tfor(int i=0;i<blockTotal;i++){"
 
         print >>fo, "\t\tstruct tableNode *" + factName + " = (struct tableNode*)malloc(sizeof(struct tableNode));"
         print >>fo, "\t\tCHECK_POINTER(" + factName + ");"
@@ -1772,11 +1809,12 @@ def generate_code(tree):
         print >>fo, "\t\t" + factName + "->dataFormat = (int *) malloc(sizeof(int)*" + str(totalAttr) + ");"
         print >>fo, "\t\tCHECK_POINTER(" + factName + "->dataFormat);"
         print >>fo, "\t\t" + factName + "->content = (char **) malloc(sizeof(char *)*" + str(totalAttr) + ");"
-        print >>fo, "\t\tCHECK_POINTER(" + factName + "->content);"
+        print >>fo, "\t\tCHECK_POINTER(" + factName + "->content);\n"
 
         tupleSize = "0"
         for i in range(0,totalAttr):
             col = colList[i]
+            colFile = col.table_name + str(col.column_name)
             if isinstance(col, ystree.YRawColExp):
                 colType = col.column_type
                 colIndex = col.column_name
@@ -1807,6 +1845,8 @@ def generate_code(tree):
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = UVA;"
             elif POS == 3:
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = MMAP;"
+            elif POS == 4:
+                print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = GPU;"
             else:
                 print >>fo, "\t\t" + factName + "->dataPos[" + str(i) + "] = MEM;"
 
@@ -1819,17 +1859,22 @@ def generate_code(tree):
             colIndex =  col.column_name
             colLen = type_length(joinAttr.factTables[0].table_name, colIndex, colType)
 
-            #>print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDONLY);"
-            print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDWR);"
-            print >>fo, "\t\toffset = i*sizeof(struct columnHeader) + blockSize["+str(i)+"];"
-            print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
-            print >>fo, "\t\tread(outFd, &header, sizeof(struct columnHeader));"
-            print >>fo, "\t\tblockSize[" + str(i) + "] += header.blockSize;"
-            print >>fo, "\t\toffset += sizeof(struct columnHeader);"
-            print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
-            print >>fo, "\t\toutSize = header.blockSize;"
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
-            print >>fo, "\t\toutTable = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+            if CODETYPE == 0 and POS == 4:
+                print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockHeader(&header, "{}", i));'.format(colFile)
+                print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\t" + factName + "->attrTotalSize[" + str(i) + "] = header.blockSize;"
+            else:
+                print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDONLY);"
+                #>print >>fo, "\t\toutFd = open(\"" + joinAttr.factTables[0].table_name + str(colIndex) + "\", O_RDWR);"
+                print >>fo, "\t\toffset = i*sizeof(struct columnHeader) + blockSize["+str(i)+"];"
+                print >>fo, "\t\tlseek(outFd,offset,SEEK_SET);"
+                print >>fo, "\t\tread(outFd, &header, sizeof(struct columnHeader));"
+                print >>fo, "\t\tblockSize[" + str(i) + "] += header.blockSize;"
+                print >>fo, "\t\toffset += sizeof(struct columnHeader);"
+                print >>fo, "\t\t" + factName + "->dataFormat[" + str(i) + "] = header.format;"
+                print >>fo, "\t\toutSize = header.blockSize;"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskStart);"
+                print >>fo, "\t\toutTable = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
 
             if CODETYPE == 0:
                 if POS == 0:
@@ -1840,10 +1885,11 @@ def generate_code(tree):
                 elif POS == 2:
                     print >>fo, "\t\tCUDA_SAFE_CALL_NO_SYNC(cudaMallocHost((void**)&"+factName+"->content["+str(i)+"],outSize));"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                elif POS == 4:
+                    print >>fo, '\t\tCUDA_SAFE_CALL_NO_SYNC(cudaGetColumnBlockAddress((void **)&{}->content[{}], "{}", i));'.format(factName, str(i), colFile)
                 else:
-                    print >>fo, "\t\t" + factName + "->content[" + str(i) + "] = (char *)memalign(256,outSize);\n"
+                    print >>fo, "\t\t" + factName + "->content[" + str(i) + "] = (char *)memalign(256,outSize);"
 
                 print >>fo, "\t\tmemcpy("+factName+"->content["+str(i)+"],outTable,outSize);"
 
@@ -1852,8 +1898,8 @@ def generate_code(tree):
                     print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)memalign(256,outSize);"
                     print >>fo, "\t\tmemcpy("+factName+"->content["+str(i)+"],outTable,outSize);"
                 elif POS == 3:
-                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
-                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
+                    print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ,MAP_SHARED,outFd,offset);"
+                    #>print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)mmap(0,outSize,PROT_READ|PROT_WRITE,MAP_SHARED,outFd,offset);"
                 else:
                     print >>fo, "\t\t"+factName+"->content["+str(i)+"] = (char *)clCreateBuffer(context.context,CL_MEM_READ_ONLY|CL_MEM_ALLOC_HOST_PTR,outSize,NULL,0);"
                     print >>fo, "\t\tclTmp = clEnqueueMapBuffer(context.queue,(cl_mem)"+factName+"->content["+str(i)+"],CL_TRUE,CL_MAP_WRITE,0,outSize,0,0,0,0);"
@@ -1861,11 +1907,11 @@ def generate_code(tree):
                     print >>fo, "\t\tclEnqueueUnmapMemObject(context.queue,(cl_mem)"+factName+"->content["+str(i)+"],clTmp,0,0,0);"
 
 
-            print >>fo, "\t\tmunmap(outTable,outSize);"
-            print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
-            print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
-            print >>fo, "\t\tclose(outFd);"
-            print >>fo, "\t\t" + factName + "->attrTotalSize[" + str(i) + "] = outSize;"
+            if not HAS_MPS:
+                print >>fo, "\t\tmunmap(outTable,outSize);"
+                print >>fo, "\t\tclock_gettime(CLOCK_REALTIME,&diskEnd);"
+                print >>fo, "\t\tdiskTotal += (diskEnd.tv_sec -  diskStart.tv_sec)* BILLION + diskEnd.tv_nsec - diskStart.tv_nsec;"
+                print >>fo, "\t\tclose(outFd);"
 
         print >>fo, "\t\t" + factName + "->tupleNum = header.tupleNum;"
 

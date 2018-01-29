@@ -24,18 +24,20 @@ Several configurable variables:
     schema queries. 0 represents normal join and 1 represents invisible join.
 
     @POS describes where the data are stored in the host memory and how the
-    codes should be generated. 0 means data are stored in pageable host
-    memory and data are explicitly transferred. 1 means data are stored in
-    pinned host memory and data are explicitly transferred. 2 means data are
-    stored in pinned host memory and the kernel will directly access the data
-    without explicit data transferring. 3 means data are stored in disk and only
-    mapped to host memory.
+    codes should be generated.
+      0(MEM) data are stored in pageable host memory and data are explicitly transferred
+      1(PINNED) data are stored in pinned host memory and data are explicitly transferred
+      2(UVA) data are stored in pinned host memory and the kernel will directly access
+        the data without explicit data transferring
+      3(MMAP) data are stored in disk and only mapped to host memory
+      4(GPU) data are shared among clients, which are preloaded in server process
+        this is only available with *libmps*
 
     @SOA is currently for testing only.
 """
 
 joinType = 0
-POS = 3
+POS = 4
 CODETYPE = 0
 SOA = 0
 

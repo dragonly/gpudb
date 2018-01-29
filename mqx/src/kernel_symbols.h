@@ -2,10 +2,8 @@
 #define __KERNEL_SYMBOLS_H_
 
 #define NUMFUNC 138
-// for function symbols lookup in cuLaunchKernel
 CUfunction fsym_table[NUMFUNC];
 
-// for loading function symbols
 const static char* fname_table[] = {
   [0] = "agg_cal",
   [1] = "agg_cal_cons",

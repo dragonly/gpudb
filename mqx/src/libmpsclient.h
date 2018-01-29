@@ -19,6 +19,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifndef _LIBMPSCLIENT_H_
+#define _LIBMPSCLIENT_H_
+
+#include "libmps.h"
 
 int mpsclient_init();
 void mpsclient_destroy();
@@ -39,4 +43,8 @@ cudaError_t mpsclient_cudaEventElapsedTime(float *ms, cudaEvent_t start, cudaEve
 cudaError_t mpsclient_cudaEventRecord(cudaEvent_t event, cudaStream_t stream);
 cudaError_t mpsclient_cudaEventSynchronize(cudaEvent_t event);
 cudaError_t mpsclient_cudaGetDevice(int *device);
+cudaError_t mpsclient_cudaGetColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock);
+cudaError_t mpsclient_cudaGetColumnBlockHeader(struct columnHeader *pheader, const char *colname, uint32_t iblock);
+
+#endif
 

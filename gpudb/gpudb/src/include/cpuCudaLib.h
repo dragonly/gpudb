@@ -50,7 +50,7 @@ static void mergeIntoTable(struct tableNode *dst, struct tableNode * src, struct
 
     assert(dst != NULL);
     assert(src != NULL);
-    dst->totalAttr = src->totalAttr; 
+    dst->totalAttr = src->totalAttr;
     dst->tupleSize = src->tupleSize;
     dst->tupleNum += src->tupleNum;
 
@@ -109,6 +109,7 @@ static void freeTable(struct tableNode * tn){
             free(tn->content[i]);
         else if(tn->dataPos[i] == MMAP)
             munmap(tn->content[i],tn->attrTotalSize[i]);
+        // NOTE: this will destroy the shared column
         else if(tn->dataPos[i] == GPU)
             cudaFree(tn->content[i]);
         // NOTE: should no go here for our purpose and data access pattern
