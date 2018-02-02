@@ -7,7 +7,7 @@ rootpath = os.getcwd()
 
 outpath = rootpath + r'/trace/file/'
 querypath = rootpath + r'/corun/query_progs/'
-datapath = rootpath + r'/../data/'
+datapath = rootpath + r'/../data_s10'
 
 rep = 6
 LOAD_GMM = 1

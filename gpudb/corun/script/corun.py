@@ -9,7 +9,7 @@ rootpath = os.getcwd()
 plan_file = rootpath + r'/corun/exec_plan/2q.plan'
 outpath = rootpath + r'/corun/output/'
 querypath = rootpath + r'/corun/query_progs/'
-datapath = rootpath + r'/../data/'
+datapath = rootpath + r'/../data_s10'
 
 # corun for #rep times
 rep = '9'
