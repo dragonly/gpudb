@@ -140,7 +140,7 @@ cudaError_t preload_columns() {
   struct columnHeader header;
   uint64_t nblocks;
   void *pswap;
-  char *col_buf = malloc(512 * 1024 * 1024);
+  char *col_buf = malloc(1024 * 1024 * 1024);
   int ncol = 0;
   for (int t = 0; t < ntables; t++) {  // table
     for (int c = 0; c < table_columns[t]; c++, ncol++) {  // column
@@ -261,7 +261,7 @@ int main(int argc, char **argv) {
   }
   listen(server_socket, 128);
 
-  mqx_print(DEBUG, "accepting client sockets");
+  mqx_print(INFO, "accepting client sockets");
   int client_socket, *new_socket;
   while (1) {
     client_socket = accept(server_socket, NULL, NULL);

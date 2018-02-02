@@ -25,7 +25,7 @@ else
 endif
 
 DATAPATH := ../../../../data
-GMMPATH := ../../../gmm
+GMMPATH := /home/lyl/gpudb/gpudb/gmm
 LDFLAGS += -L$(GMMPATH)
 CFLAGS := -I$(GMMPATH) -I../include
 SRC := tableScan.cu hashJoin.cu cuckoo.cu inviJoin.cu materialize.cu groupBy.cu orderBy.cu scanImpl_merged.cu
@@ -36,23 +36,22 @@ OBJ_PATCHED := tableScan.patched.o  hashJoin.patched.o  cuckoo.patched.o  inviJo
 all: mpsdb
 
 modules: $(SRC) driver.cu
-	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -pg $(SRC) driver.cu $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
+	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -g $(SRC) driver.cu $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
 
 mpsdb: gmm driver-mps
-	 $(NVCC) --cudart=shared -pg $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+	 $(NVCC) --cudart=shared -g $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
 
 gmm: $(SRC_PATCHED)
 	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC_PATCHED)
 
 driver-mps: driver.cu
 	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM driver.cu
-#	gcc -c -g -I$(GMMPATH) -I../include -I$(CUDA_INC_PATH) driver.c
 
 gmmdb: gmm driver
-	 $(NVCC) --cudart=shared -pg $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
+	 $(NVCC) --cudart=shared -g $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE
 
 gpudb: gpu driver
-	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
+	 $(NVCC) -g $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
 
 driver: driver.cu 
 	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) driver.cu

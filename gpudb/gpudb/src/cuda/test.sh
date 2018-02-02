@@ -1,10 +1,10 @@
 #!/bin/sh
-
-GMMPATH=`pwd`/../../../../gdb/src
-
-
-#LD_PRELOAD=${GMMPATH}/libgmm.so ${GMMPATH}/../tests/tmp/test_evict_remote &
-#LD_PRELOAD=${GMMPATH}/libgmm.so ./GPUDATABASE 1 --datadir ../../data > debug1.txt &
-LD_PRELOAD=${GMMPATH}/libgmm.so ./GPUDATABASE 1 --datadir ../../data &
-#LD_PRELOAD=${GMMPATH}/libgmm.so ./GPUDATABASE 1 --datadir ../../data > debug2.txt
-LD_PRELOAD=${GMMPATH}/libgmm.so ./GPUDATABASE 1 --datadir ../../data
+export LD_PRELOAD=/home/lyl/gpudb/gpudb/gmm/libgmm.so
+# preload data
+./GPUDATABASE --datadir /home/lyl/gpudb/data_s10
+sleep 1
+# launch 10 simultaneous query
+for i in {1..10}; do
+  ./GPUDATABASE --datadir /home/lyl/gpudb/data_s10 > "log$i" 2>&1 &
+done
+echo DONE

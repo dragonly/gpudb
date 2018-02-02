@@ -339,6 +339,18 @@ cudaError_t mpsserver_cudaConfigureCall(struct mps_client *client, dim3 gDim, di
   kconf->blockDim = bDim;
   kconf->sharedMem = shMem;
   // TODO: use custom stream
+  // NOTE: some kernels in are grid/block dimension dependent (and hard to refactor sadly :(
+  //       hopefully it is only about 0.5% of the whole kernel execution time.
+  //       we change other kernels' gridDim.x for now
+  //       prescan<bool, bool>, uniformAdd, scan_int, scan_other,
+  // uint32_t f = kconf->func_index;
+  // if (f != 110 && f != 111 && f != 112 && f != 113 && f != 130 && f != 134 && f != 135 && f != 136 && f != 137) {
+  //   if (kconf->gridDim.x > 28) {
+  //     kconf->gridDim.x = 28;
+  //   }
+  // } else {
+  //   mqx_print(DEBUG, "scanImpl, not change gridDim.x(%d)", kconf->gridDim.x);
+  // }
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaSetupArgument(struct mps_client *client, void *parg, size_t size, size_t offset) {

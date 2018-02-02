@@ -21,8 +21,12 @@ os.chdir("../")
 rootpath = os.getcwd()
 
 LOAD_GMM = 1
+MPS = 1
 
-if LOAD_GMM:
+if MPS:
+    ldpreload=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
+    make_command = 'make mpsdb'
+elif LOAD_GMM:
     ldpreload=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
     make_command = 'make gmmdb'
 else:
