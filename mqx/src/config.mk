@@ -11,6 +11,7 @@ MQX_CONFIGS :=
 
 # Collect runtime statistics.
 #MQX_CONFIGS += -DMQX_CONFIG_STATS
+MQX_CONFIGS += -DMPS_CONFIG_STATS
 
 # Collect kernel execution time.
 # NOTE: This flag, if set, causes a global barrier inserted after

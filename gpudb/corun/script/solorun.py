@@ -1,36 +1,27 @@
 #!/usr/bin/python
 import os
 import shutil
+import time
+import subprocess
 
 os.chdir("../../")
 rootpath = os.getcwd()
 
 outpath = rootpath + r'/trace/file/'
 querypath = rootpath + r'/corun/query_progs/'
-datapath = rootpath + r'/../data/'
+datapath = rootpath + r'/../data_s10/'
 
-rep = 9
-LOAD_GMM = 1
-if LOAD_GMM:
-	preloadlib=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
-else:
-	preloadlib=''
-#preloadlib = ' '
-#preloadlib = 'LD_PRELOAD=' + rootpath + r'/lib-intercept/libicept.so '
-#preloadlib = 'LD_PRELOAD=' + rootpath + r'/gmm/libgmm.so '
+rep = 1
+preloadlib=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
 
 if os.path.exists(outpath):
-	shutil.rmtree(outpath)
+    shutil.rmtree(outpath)
 os.mkdir(outpath)
 
-os.chdir(querypath)
-
+print querypath
 for query in os.listdir(querypath):
-	# load the column
-	cmd = preloadlib + './' + query + ' --datadir ' + datapath
-	os.system(cmd)
-	cmd = 'rm -f ' + outpath + query + '.solo'
-	os.system(cmd)
-	for i in range(0, rep):
-		cmd = preloadlib + './' + query + ' --datadir ' + datapath + ' >> ' + outpath + query + '.solo'
-		os.system(cmd)
+    print query
+    #for i in range(0, rep):
+    cmd = preloadlib + querypath + query + ' --datadir ' + datapath + ' >> ' + outpath + query + '.solo'
+    #print cmd
+    subprocess.call(cmd, shell=True)

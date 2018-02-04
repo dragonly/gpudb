@@ -38,6 +38,7 @@
 #include "kernel_symbols.h"
 #include "libmps.h"
 #include "libmpsserver.h"
+#include "mps_stats.h"
 #include "serialize.h"
 
 const char *mod_file_name = "ops.cubin";
@@ -87,12 +88,14 @@ void *worker_thread(void *socket);
 
 int shmfd;
 struct global_context *pglobal;
+struct mps_stats gstats;
 
 void sigint_handler(int signum) {
-  mqx_print(DEBUG, "closing server...");
+  printf("closing server...\n");
   unlink(SERVER_SOCKET_FILE);
   close(shmfd);
   checkCudaErrors(cuCtxDestroy(cudaContext));
+  mpsserver_printStats();
   exit(0);
 }
 
@@ -174,7 +177,7 @@ cudaError_t preload_columns() {
         memcpy(&shared_columns[ncol].headers[i], &header, sizeof(struct columnHeader));
 
         read(fd, col_buf, header.blockSize);
-        if ((ret = mpsserver_cudaMalloc(&pswap, header.blockSize, 0)) != cudaSuccess) {
+        if ((ret = mpsserver_cudaMalloc(NULL, &pswap, header.blockSize, 0)) != cudaSuccess) {
           mqx_print(FATAL, "cudaMalloc error(%d)", ret);
           return ret;
         }
@@ -240,10 +243,13 @@ int main(int argc, char **argv) {
   INIT_LIST_HEAD(&pglobal->allocated_regions);
   INIT_LIST_HEAD(&pglobal->attached_regions);
 
+  pthread_mutex_init(&gstats.mutex, NULL);
+
   signal(SIGINT, sigint_handler);
   signal(SIGKILL, sigint_handler);
 
   if (preload_columns() != cudaSuccess) goto fail_load_col;
+  mpsserver_printStats();
 
   mqx_print(DEBUG, "initializing server socket");
   int server_socket;
@@ -334,6 +340,7 @@ void *worker_thread(void *client_socket) {
   pthread_mutex_unlock(&pglobal->client_mutex);
   struct mps_client *client = &pglobal->mps_clients[client_id];
   client->id = client_id;
+  client->nrgns = 0;
   checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
   dma_channel_init(&client->dma_htod, 1);
   dma_channel_init(&client->dma_dtoh, 0);
@@ -341,7 +348,7 @@ void *worker_thread(void *client_socket) {
   client->kconf.nargs = 0;
   client->kconf.nadvices = 0;
   client->kconf.func_index = -1;
-  mqx_print(INFO, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id + 1, pglobal->mps_nclients);
+  mqx_print(INFO, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
   
   int rret;
   int socket = *(int *)client_socket;
@@ -357,7 +364,7 @@ void *worker_thread(void *client_socket) {
     rret = recv(socket, buf, MPS_REQ_SIZE, 0);
     deserialize_mps_req(buf, &req);
     if (req.type == REQ_QUIT) {
-      mqx_print(DEBUG, "client quit");
+      mqx_print(DEBUG, "client quitting");
       goto finish;
     }
     memset(buf, 0, MPS_REQ_SIZE);
@@ -385,7 +392,7 @@ void *worker_thread(void *client_socket) {
         pbuf = buf;
         pbuf = deserialize_uint64(pbuf, (uint64_t *)&size);
         pbuf = deserialize_uint32(pbuf, &flags);
-        cudaError_t ret = mpsserver_cudaMalloc(&devPtr, size, flags);
+        cudaError_t ret = mpsserver_cudaMalloc(client, &devPtr, size, flags);
         pbuf = buf;
         pbuf = serialize_uint64(pbuf, (uint64_t)devPtr);
         pbuf = serialize_uint32(pbuf, ret);
@@ -658,6 +665,7 @@ finish:
   pthread_mutex_lock(&pglobal->client_mutex);
   pglobal->mps_nclients -= 1;
   pglobal->mps_clients_bitmap &= ~(1 << client_id);
+  client_destroy(client);
   client->id = -1;
   checkCudaErrors(cuStreamDestroy(client->stream));
   dma_channel_destroy(&client->dma_htod);
@@ -667,6 +675,7 @@ finish:
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
+  mpsserver_printStats();
   mqx_print(INFO, "++++++++++++++++ worker thread exit    (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
   return NULL;
 }

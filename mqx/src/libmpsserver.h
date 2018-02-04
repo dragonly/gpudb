@@ -28,7 +28,7 @@
 #include "protocol.h"
 #include "libmps.h"
 
-cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags);
+cudaError_t mpsserver_cudaMalloc(struct mps_client *client, void **devPtr, size_t size, uint32_t flags);
 cudaError_t mpsserver_cudaFree(void *devPtr);
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind);
 cudaError_t mpsserver_cudaMemset(struct mps_client *client, void *dst, int32_t value, size_t size);
@@ -49,6 +49,8 @@ void dma_channel_destroy(struct mps_dma_channel *channel);
 struct mps_region *find_allocated_region(struct global_context*, const void*);
 cudaError_t mpsserver_getColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock);
 cudaError_t mpsserver_getColumnBlockHeader(struct columnHeader **ph, const char *colname, uint32_t iblock);
+void client_destroy(struct mps_client *client);
+void mpsserver_printStats();
 
 #endif
 

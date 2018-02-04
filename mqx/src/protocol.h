@@ -78,9 +78,12 @@ struct client_kernel_conf {
   uint32_t nadvices;
   int32_t func_index;
 };
+#define MAX_CLIENT_REGIONS 1024
 struct mps_client {
   uint16_t id;
   CUstream stream;
+  struct mps_region *rgns[MAX_CLIENT_REGIONS];
+  uint32_t nrgns;
   struct mps_dma_channel dma_htod;
   struct mps_dma_channel dma_dtoh;
   struct client_kernel_conf kconf;  // per-client kernel configurations

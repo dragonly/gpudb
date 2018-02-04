@@ -7,10 +7,11 @@
 #include <cuda_runtime_api.h>
 #include "advice.h"
 #include "common.h"
+#include "kernel_symbols.h"
+#include "libmpsserver.h"
+#include "mps_stats.h"
 #include "protocol.h"
 #include "serialize.h"
-#include "libmpsserver.h"
-#include "kernel_symbols.h"
 
 
 // foward declarations of internal functions
@@ -55,9 +56,16 @@ static inline uint64_t gpu_freemem();
 extern struct global_context *pglobal;
 extern CUfunction F_vectorAdd;
 extern const char *datadir;
+extern struct mps_stats gstats;
 
 const char *_err_buf;
 extern struct column_data shared_columns[NCOLUMN];
+
+void mpsserver_printStats() {
+  printf("\n================= STATS =================\n");
+  printf("cudaMemcpy time: %.3f s", gstats.cudaMemcpy_time);
+  printf("\n");
+}
 
 cudaError_t mpsserver_getColumnBlockAddress(void **devPtr, const char *colname, uint32_t iblock) {
   for (int i = 0; i < NCOLUMN; i++) {
@@ -86,7 +94,42 @@ cudaError_t mpsserver_getColumnBlockHeader(struct columnHeader **pheader, const 
   mqx_print(WARN, "column not found (%s)", colname);
   return cudaErrorInvalidValue;
 }
-cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
+// NOTE: destroy all regions which are `cudaMalloc`ed by this client thread.
+void client_destroy(struct mps_client *client) {
+  struct mps_region *rgn;
+  int destroyed = 0;
+  for (int i = 0; i < client->nrgns; i++) {
+    rgn = client->rgns[i];
+    if (rgn->state != ZOMBIE) {
+      free_region(rgn);
+      destroyed++;
+    }
+    free(rgn);
+  }
+  mqx_print(INFO, "destroy %d regions", destroyed);
+
+  struct list_head *_pos;
+  struct mps_region *_rgn;
+  int _nrgns = 0;
+  list_for_each(_pos, &pglobal->allocated_regions) {
+    //_rgn = list_entry(_pos, struct mps_region, entry_alloc);
+    //printf("%p ", _rgn->swap_addr);
+    _nrgns++;
+  }
+  mqx_print(INFO, "%d allocated regions in total", _nrgns);
+  _nrgns = 0;
+  int _persist = 0;
+  list_for_each(_pos, &pglobal->attached_regions) {
+    _rgn = list_entry(_pos, struct mps_region, entry_attach);
+    //printf("%p ", _rgn->swap_addr);
+    if ((_rgn->flags & FLAG_PERSIST) == 1) {
+      _persist++;
+    }
+    _nrgns++;
+  }
+  mqx_print(INFO, "%d attached regions in total, %d PERSIST", _nrgns, _persist);
+}
+cudaError_t mpsserver_cudaMalloc(struct mps_client *client, void **devPtr, size_t size, uint32_t flags) {
   if (size == 0) {
     mqx_print(WARN, "allocating 0 bytes");
   } else if (size > pglobal->mem_total) {
@@ -122,6 +165,11 @@ cudaError_t mpsserver_cudaMalloc(void **devPtr, size_t size, uint32_t flags) {
   rgn->evict_cost = 0;
   rgn->freq = 0;
   add_allocated_region(rgn);
+  if (client != NULL) {
+    client->rgns[client->nrgns++] = rgn;
+  } else {
+    mqx_print(WARN, "client can only be NULL for preloaded columns");
+  }
   *devPtr = rgn->swap_addr;
   mqx_print(DEBUG, "devPtr(%p) size(%zu)", *devPtr, size);
   return cudaSuccess;
@@ -163,19 +211,33 @@ cudaError_t mpsserver_cudaFree(void *devPtr) {
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
+  cudaError_t ret;
+  float time;
+  stats_time_begin();
   switch (kind) {
     case cudaMemcpyHostToDevice:
-      return mpsserver_cudaMemcpyHostToSwap(client, dst, src, size);
+      ret = mpsserver_cudaMemcpyHostToSwap(client, dst, src, size);
+      break;
     case cudaMemcpyDeviceToHost:
-      return mpsserver_cudaMemcpyDeviceToHost(client, dst, src, size);
+      ret = mpsserver_cudaMemcpyDeviceToHost(client, dst, src, size);
+      break;
     case cudaMemcpyDeviceToDevice:
-      return mpsserver_cudaMemcpyDeviceToDevice(client, dst, src, size);
+      ret = mpsserver_cudaMemcpyDeviceToDevice(client, dst, src, size);
+      break;
     case cudaMemcpyDefault:
-      return mpsserver_cudaMemcpyDefault(client, dst, src, size);
+      ret = mpsserver_cudaMemcpyDefault(client, dst, src, size);
+      break;
     case cudaMemcpyHostToHost:
-      return cudaErrorNotYetImplemented;
+      ret = cudaErrorNotYetImplemented;
+      break;
+    default:
+      ret = cudaErrorInvalidMemcpyDirection;
   }
-  return cudaErrorInvalidMemcpyDirection;
+  stats_time_end(time);
+  pthread_mutex_lock(&gstats.mutex);
+  gstats.cudaMemcpy_time += time;
+  pthread_mutex_unlock(&gstats.mutex);
+  return ret;
 }
 cudaError_t mpsserver_cudaMemset(struct mps_client *client, void *dst, int32_t value, size_t size) {
   if (size == 0) {
@@ -440,7 +502,9 @@ cudaError_t mpsserver_cudaLaunchKernel(struct mps_client *client) {
   }
 
 attach:
+  //pthread_mutex_lock(&pglobal->attach_mutex);
   ret = attach_regions(rgns, nrgns);
+  //pthread_mutex_unlock(&pglobal->attach_mutex);
   if (ret != cudaSuccess) {
     if (ret == cudaErrorLaunchTimeout) {
       sched_yield();
@@ -513,7 +577,7 @@ attach:
     return cret;
   }
   cuStreamAddCallback(client->stream, kernel_finish_callback, (void *)kcb, 0);
-  // checkCudaErrors(cuStreamSynchronize(client->stream));
+  checkCudaErrors(cuStreamSynchronize(client->stream));
   // update clients position in LRU list
   //
   // NOTE: `kcb` cannot be freed here!!! it should be the work of `kernel_finish_callback`
@@ -874,6 +938,7 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
   }
   return mem_total;
 }
+// NOTE: may be concurrent executed by multiple threads on exit
 static cudaError_t free_region(struct mps_region *rgn) {
   uint8_t yielded = 0;
   if (rgn->flags & FLAG_PERSIST) {
@@ -922,9 +987,30 @@ revoke_resources:
   rgn->blocks = NULL;
   free(rgn->swap_addr);
   rgn->swap_addr = NULL;
+  rgn->gpu_addr = 0;
   rgn->state = ZOMBIE;
   pthread_mutex_unlock(&rgn->mm_mutex);
   pthread_mutex_destroy(&rgn->mm_mutex);
+
+  //int _nrgns = 0;
+  //struct list_head *_pos;
+  //struct mps_region *_rgn;
+  //mqx_print(DEBUG, "allocated regions");
+  //list_for_each(_pos, &pglobal->allocated_regions) {
+  //  _rgn = list_entry(_pos, struct mps_region, entry_alloc);
+  //  printf("%p ", _rgn->swap_addr);
+  //  _nrgns++;
+  //}
+  //printf("\n%d in total\n", _nrgns);
+  //_nrgns = 0;
+  //mqx_print(DEBUG, "attached regions");
+  //list_for_each(_pos, &pglobal->attached_regions) {
+  //  _rgn = list_entry(_pos, struct mps_region, entry_attach);
+  //  printf("%p ", _rgn->swap_addr);
+  //  _nrgns++;
+  //}
+  //printf("\n%d in total\n", _nrgns);
+
   return cudaSuccess;
 }
 static cudaError_t mpsserver_cudaMemcpyHostToSwap(struct mps_client *client, void *dst, void *src, size_t size) {

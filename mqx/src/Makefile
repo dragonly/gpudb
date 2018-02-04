@@ -47,7 +47,7 @@ mpsserver : mpsserver.o common.o serialize.o libmpsserver.o libmps.o
 	$(NVCC) -lcuda -arch=sm_61 $^ -o $@
 
 mpsserver.o: mpsserver.c
-	$(NVCC) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
+	$(NVCC) $(MQX_CONFIGS) -c -g -Xcompiler -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -DSTANDALONE -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
 
 libmps.so: mps_interfaces.o libmpsclient.o serialize.o common.o libmps.o
 	$(CC) -g -Wall -shared -pthread -ldl -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include $^ -o $@

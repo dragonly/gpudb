@@ -35,8 +35,8 @@ OBJ_PATCHED := tableScan.patched.o  hashJoin.patched.o  cuckoo.patched.o  inviJo
 
 all: mpsdb
 
-modules: $(SRC) driver.cu
-	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -g $(SRC) driver.cu $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
+modules: $(SRC)
+	 $(NVCC) $(GENCODE_FLAGS) -cubin -dlink -g $(SRC) $(CFLAGS) -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o ops.cubin
 
 mpsdb: gmm driver-mps
 	 $(NVCC) --cudart=shared -g $(OBJ_PATCHED) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -Xlinker -rpath=$(GMMPATH) -lgmm -o GPUDATABASE

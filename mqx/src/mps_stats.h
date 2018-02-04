@@ -22,7 +22,7 @@
 #ifndef _MPS_STATS_H_
 #define _MPS_STATS_H_
 
-#include <time.h>
+#include <sys/time.h>
 
 #define TVALMS(t) ((t).tv_sec * 1000.0 + (t).tv_usec / 1000.0)
 #define TDIFFMS(t1, t2) (TVALMS(t2) - TVALMS(t1))
@@ -41,9 +41,17 @@
     gettimeofday(&t2, NULL);   \
     RESULT = TDIFFMS(t1, t2);  \
   } while (0)
+
 #else
+
 #define stats_time_begin()
 #define stats_time_end(RESULT)
+
 #endif
+
+struct mps_stats {
+  pthread_mutex_t mutex;
+  volatile float cudaMemcpy_time;
+};
 
 #endif
