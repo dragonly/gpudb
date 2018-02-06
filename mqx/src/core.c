@@ -1009,7 +1009,7 @@ static int block_sync(struct region *r, int block) {
   stats_time_begin();
   while (atomic_read(&r->c_output) > 0)
     ;
-  stats_time_end(&local_ctx->stats, time_sync_rw);
+  stats_time_end(&local_ctx->stats, time_sync_io);
 
   off = block * BLOCKSIZE;
   size = min(off + BLOCKSIZE, r->size) - off;
@@ -1024,7 +1024,7 @@ static int block_sync(struct region *r, int block) {
     stats_time_begin();
     while (atomic_read(&r->c_input) > 0)
       ;
-    stats_time_end(&local_ctx->stats, time_sync_rw);
+    stats_time_end(&local_ctx->stats, time_sync_io);
 
     stats_time_begin();
     ret = mqx_memcpy_htod(r->dev_addr + off, r->swp_addr + off, size);

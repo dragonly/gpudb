@@ -72,10 +72,11 @@ void stats_print(struct statistics *pstats) {
   mqx_print(STAT, "------------------------------");
   mqx_print(STAT, "time_sync_attach    %.3lf", pstats->time_sync_attach);
   mqx_print(STAT, "time_sync_block     %.3lf", pstats->time_sync_block);
-  mqx_print(STAT, "time_sync_rw        %.3lf", pstats->time_sync_rw);
+  mqx_print(STAT, "time_sync_io        %.3lf", pstats->time_sync_io);
   mqx_print(STAT, "time_kernel         %.3lf", pstats->time_kernel);
   mqx_print(STAT, "time_attach         %.3lf", pstats->time_attach);
   mqx_print(STAT, "time_load           %.3lf", pstats->time_load);
+  mqx_print(STAT, "time_load+time_attach           %.3lf", pstats->time_load+pstats->time_attach);
   mqx_print(STAT, "count_kernels       %ld", pstats->count_kernels);
   mqx_print(STAT, "------------------------------");
   release(&pstats->lock);
