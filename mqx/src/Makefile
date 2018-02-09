@@ -9,10 +9,6 @@ endif
 # CUDA installation path
 CUDAPATH = /usr/local/cuda
 
-# Source files needed to generate libmqx
-SRCS = client.c common.c core.c cow.c interfaces.c  msq.c replacement.c stats.c libc_hooks.c libmps.c
-OBJS = $(SRCS:.c=.o)
-
 # Compiler/linker settings
 CC := gcc
 NVCC := $(CUDAPATH)/bin/nvcc
@@ -27,15 +23,7 @@ LDFLAGS := -shared -pthread -ldl
 .DEFAULT_GOAL := all
 .PHONY : depend all clean install uninstall
 
-all: depend mqxctl libmqx.so libmps.so mpsserver mps_testclient
-
-# Generate dependencies for $(OBJS)
-depend : .depend
-
-.depend : $(SRCS)
-	$(CC) $(CFLAGS) -MM $(SRCS) > .depend
-
--include .depend
+all: libmps.so mpsserver mps_testclient
 
 # No rules for source files
 %.c: ;
@@ -61,17 +49,8 @@ mps_testclient : mps_testclient.o serialize.o common.o
 mps_testclient.o: mps_testclient.c
 	$(NVCC) -c -g -shared -Xcompiler -Wall,-fPIC,-Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) $^ -o $@
 
-mqxctl : mqxctl.o common.o
-	$(NVCC) -L$(CUDAPATH)/lib64 -arch=sm_61 $^ -o $@
-
-mqxctl.o : mqxctl.c
-	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $^ -o $@
-
-libmqx.so: $(OBJS)
-	$(CC) $(LDFLAGS) $(OBJS) -o $@
-
 clean:
-	-rm -f mpsserver mps_testclient mqxctl libmps.so libmqx.so *.o .depend
+	-rm -f mpsserver mps_testclient libmps.so *.o
 
 # TODO
 install: ;

@@ -86,14 +86,12 @@ int initCUDA() {
 
 void *worker_thread(void *socket);
 
-int shmfd;
 struct global_context *pglobal;
 struct mps_stats gstats;
 
 void sigint_handler(int signum) {
   printf("closing server...\n");
   unlink(SERVER_SOCKET_FILE);
-  close(shmfd);
   checkCudaErrors(cuCtxDestroy(cudaContext));
   mpsserver_printStats();
   exit(0);
@@ -177,7 +175,7 @@ cudaError_t preload_columns() {
         memcpy(&shared_columns[ncol].headers[i], &header, sizeof(struct columnHeader));
 
         read(fd, col_buf, header.blockSize);
-        if ((ret = mpsserver_cudaMalloc(NULL, &pswap, header.blockSize, 0)) != cudaSuccess) {
+        if ((ret = mpsserver_cudaMalloc(NULL, &pswap, header.blockSize, FLAG_PERSIST|FLAG_READONLY)) != cudaSuccess) {
           mqx_print(FATAL, "cudaMalloc error(%d)", ret);
           return ret;
         }
@@ -186,7 +184,6 @@ cudaError_t preload_columns() {
           return ret;
         }
         shared_columns[ncol].prgns[i] = find_allocated_region(pglobal, pswap);
-        shared_columns[ncol].prgns[i]->flags |= FLAG_PERSIST;
       }
       close(fd);
     }
@@ -217,19 +214,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  // TODO: remove shm call
-  mqx_print(DEBUG, "opening shared memory");
-  shmfd = shm_open(MQX_SHM_GLOBAL, O_RDWR, 0);
-  if (shmfd == -1) {
-    mqx_print(FATAL, "Failed to open shared memory: %s.", strerror(errno));
-      goto fail_shm;
-  }
   mqx_print(DEBUG, "mmaping global context");
-  pglobal = (struct global_context *)mmap(NULL /* address */, sizeof(struct global_context), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0 /* offset */);
-  if (pglobal == MAP_FAILED) {
-    mqx_print(FATAL, "Failed to mmap shared memory: %s.", strerror(errno));
-    goto fail_mmap;
-  }
+  pglobal = (struct global_context *) calloc(1, sizeof(struct global_context));
   mqx_print(DEBUG, "initializing global context");
   memset(pglobal->mps_clients, 0, sizeof(struct mps_client) * MAX_CLIENTS);
   for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -237,11 +223,19 @@ int main(int argc, char **argv) {
   }
   pglobal->mps_clients_bitmap = 0;
   pglobal->mps_nclients = 0;
+  pglobal->gpumem_used = 0;
   pthread_mutex_init(&pglobal->client_mutex, NULL);
   pthread_mutex_init(&pglobal->alloc_mutex, NULL);
   pthread_mutex_init(&pglobal->attach_mutex, NULL);
+  pthread_mutex_init(&pglobal->launch_mutex, NULL);
   INIT_LIST_HEAD(&pglobal->allocated_regions);
   INIT_LIST_HEAD(&pglobal->attached_regions);
+
+  CUdevice device;
+  cuDeviceGet(&device, 0);
+  cuDeviceTotalMem(&pglobal->gpumem_total, device);
+  mqx_print(INFO, "Total device memory: %.2f GB (%lu bytes)", pglobal->gpumem_total/1024/1024/1024.0, pglobal->gpumem_total);
+  //mqx_print(INFO, "Free device memory : %.2f GB (%lu bytes)", mem_free/1024/1024/1024.0, mem_free);
 
   pthread_mutex_init(&gstats.mutex, NULL);
 
@@ -261,9 +255,16 @@ int main(int argc, char **argv) {
   }
   server.sun_family = AF_UNIX;
   strcpy(server.sun_path, SERVER_SOCKET_FILE);
+bind:
   if (bind(server_socket, (struct sockaddr *) &server, sizeof(struct sockaddr_un))) {
-    mqx_print(FATAL, "binding server socket: %s", strerror(errno));
-    goto fail_bind;
+    mqx_print(WARN, "binding server socket: %s(%d)", strerror(errno), errno);
+    if (errno == 98) {  // Address already in use
+      mqx_print(INFO, "delete socket file, retry binding");
+      unlink(SERVER_SOCKET_FILE);
+      goto bind;
+    } else {
+      goto fail_bind;
+    }
   }
   listen(server_socket, 128);
 
@@ -298,6 +299,7 @@ int main(int argc, char **argv) {
   pthread_mutex_destroy(&pglobal->client_mutex);
   pthread_mutex_destroy(&pglobal->alloc_mutex);
   pthread_mutex_destroy(&pglobal->attach_mutex);
+  pthread_mutex_destroy(&pglobal->launch_mutex);
   struct list_head *pos;
   struct mps_region *rgn;
   list_for_each(pos, &pglobal->allocated_regions) {
@@ -314,41 +316,52 @@ int main(int argc, char **argv) {
 fail_bind:
   close(server_socket);
 fail_create_socket:
-fail_mmap:
-  close(shmfd);
-fail_shm:
 fail_load_col:
 fail_cuda:
   checkCudaErrors(cuCtxDestroy(cudaContext));
 }
 
+static volatile uint32_t client_id_max = -1;
 // TODO: support cuda program using multiple streams
 void *worker_thread(void *client_socket) {
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
 
-  pthread_mutex_lock(&pglobal->client_mutex);
-  pglobal->mps_nclients += 1;
-  int client_id = -1;
-  int nclients = pglobal->mps_nclients;
-  for (int i = 0; i < nclients; i++) {
-    if ((pglobal->mps_clients_bitmap & (1 << i)) == 0) {
-      client_id = i;
-      pglobal->mps_clients_bitmap |= (1 << i);
-      break;
-    }
+  if (pglobal->mps_nclients > MAX_CLIENTS) {
+    mqx_print(ERROR, "max client number reached");
+    pthread_exit(NULL);
   }
+  int client_pos = -1;
+  int client_id = -1;
+take_client_pos:
+  pthread_mutex_lock(&pglobal->client_mutex);
+  client_id_max += 1;
+  pglobal->mps_nclients += 1;
+  client_id = client_id_max;
+  client_pos = client_id % MAX_CLIENTS;
+  if ((pglobal->mps_clients_bitmap & (1 << client_pos)) == 1) {  // client position already occupied
+    pthread_mutex_unlock(&pglobal->client_mutex);
+    //sched_yield();
+    goto take_client_pos;
+  }
+  pglobal->mps_clients_bitmap |= (1 << client_pos);
   pthread_mutex_unlock(&pglobal->client_mutex);
-  struct mps_client *client = &pglobal->mps_clients[client_id];
+  if (client_pos == -1) {
+    mqx_print(ERROR, "invalid client position");
+    pthread_exit(NULL);
+  }
+  mqx_print(INFO, "++++++++++++++++ worker thread created (id: %d, pos: %d, total: %d) ++++++++++++++++", client_id, client_pos, pglobal->mps_nclients);
+
+  struct mps_client *client = &pglobal->mps_clients[client_pos];
   client->id = client_id;
   client->nrgns = 0;
   checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
-  dma_channel_init(&client->dma_htod, 1);
+  // TODO: init dma channels on server startup
+  dma_channel_init(&client->dma_htod, 1/*isHtoD*/);
   dma_channel_init(&client->dma_dtoh, 0);
   client->kconf.ktop = client->kconf.kstack;
   client->kconf.nargs = 0;
   client->kconf.nadvices = 0;
   client->kconf.func_index = -1;
-  mqx_print(INFO, "++++++++++++++++ worker thread created (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
   
   int rret;
   int socket = *(int *)client_socket;
@@ -663,19 +676,19 @@ void *worker_thread(void *client_socket) {
 
 finish:
   pthread_mutex_lock(&pglobal->client_mutex);
-  pglobal->mps_nclients -= 1;
-  pglobal->mps_clients_bitmap &= ~(1 << client_id);
-  client_destroy(client);
-  client->id = -1;
-  checkCudaErrors(cuStreamDestroy(client->stream));
-  dma_channel_destroy(&client->dma_htod);
-  dma_channel_destroy(&client->dma_dtoh);
+    pglobal->mps_nclients -= 1;
+    pglobal->mps_clients_bitmap &= ~(1 << client_pos);
+    client_destroy(client);
+    client->id = -1;
+    checkCudaErrors(cuStreamDestroy(client->stream));
+    dma_channel_destroy(&client->dma_htod);
+    dma_channel_destroy(&client->dma_dtoh);
   pthread_mutex_unlock(&pglobal->client_mutex);
 
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
   mpsserver_printStats();
-  mqx_print(INFO, "++++++++++++++++ worker thread exit    (%d/%d) ++++++++++++++++", client_id, pglobal->mps_nclients);
+  mqx_print(INFO, "---------------- worker thread exit    (id: %d, pos: %d, total: %d) ----------------", client_id, client_pos, pglobal->mps_nclients);
   return NULL;
 }

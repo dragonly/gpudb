@@ -55,19 +55,19 @@ for plan in plans:
 
         cmd = preloadlib + ' ./' + query + ' --datadir ' + datapath + ' >> ' + oo + ' 2>>' + output+'error'
         script = rootpath+'/corun/script/reprun.py ' + rep + ' ' + cmd + ' &'
-        print script
+        #print script
         os.system(script)
 
-    time.sleep(10)
-    cmd=' '
-    os.system(cmd) # like press an enter for the last '&'
-    for query in querys:
-        cmd = r'ps -C ' + query + ' -o pid=|xargs'
-        pid = os.popen(cmd).read().strip()
-        if pid:
-            cmd ='kill -9 ' + pid
-            os.system(cmd)
-            oo = query+' is killed, ' + pid
-            print oo
-        #cmd = oo+ ' > ' + output + '/'
-        #os.system(oo)
+    time.sleep(3)
+    #cmd=' '
+    #os.system(cmd) # like press an enter for the last '&'
+    #for query in querys:
+    #    cmd = r'ps -C ' + query + ' -o pid=|xargs'
+    #    pid = os.popen(cmd).read().strip()
+    #    if pid:
+    #        cmd ='kill -9 ' + pid
+    #        os.system(cmd)
+    #        oo = query+' is killed, ' + pid
+    #        print oo
+    #    #cmd = oo+ ' > ' + output + '/'
+    #    #os.system(oo)

@@ -3,8 +3,20 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "common.h"
-#include "interfaces.h"
 #include "libmpsclient.h"
+
+#define __USE_GNU
+#include <dlfcn.h>
+#define DEFAULT_API_POINTER(func, var)         \
+  do {                                         \
+    var = (typeof(var))dlsym(RTLD_NEXT, func); \
+    /*printf(#func " %p\n", var);*/            \
+    char *__error;                             \
+    if ((__error = dlerror()) != NULL) {       \
+      fputs(__error, stderr);                  \
+      abort();                                 \
+    }                                          \
+  } while (0)
 
 cudaError_t (*nv_cudaMemcpy)(void *, const void *, size_t, enum cudaMemcpyKind) = NULL;
 

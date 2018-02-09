@@ -32,8 +32,8 @@ int send_large_buf(int socket, unsigned char *buf, uint32_t size);
 int recv_large_buf(int socket, unsigned char *buf, uint32_t size);
 
 // data types
-#define BLOCKSIZE (1L * 1024L * 1024L)
-#define BLOCKSHIFT 20
+#define BLOCKSIZE (8L * 1024L * 1024L)
+#define BLOCKSHIFT 23
 #define BLOCKMASK (~(BLOCKSIZE - 1))
 #define NBLOCKS(size) (((size) + BLOCKSIZE - 1) >> BLOCKSHIFT)
 #define BLOCKIDX(offset) (((uint64_t)(offset)) >> BLOCKSHIFT)
@@ -49,10 +49,11 @@ typedef enum {
   ZOMBIE        // waiting to be GC'ed
 } mps_region_state_t;
 // Device memory region flags.
-#define FLAG_PTARRAY  1  // In mqx.h
-#define FLAG_COW      2  // Copy-on-write
-#define FLAG_MEMSET   4  // Lazy cudaMemset
-#define FLAG_PERSIST  8  // will not be `cudaFree`ed during the whole lifetime of mpsserver, e.g. shared columns
+#define FLAG_PTARRAY   1   // In mqx.h
+#define FLAG_COW       2   // Copy-on-write
+#define FLAG_MEMSET    4   // Lazy cudaMemset
+#define FLAG_PERSIST   8   // will not be `cudaFree`ed during the whole lifetime of mpsserver, e.g. shared columns
+#define FLAG_READONLY  16  // state will not change during the whole lifetime of mpsserver, now only used together with shared columns
 struct mps_region {
   pthread_mutex_t mm_mutex;  // for shared region concurrency control, e.g. shared columns
   void *swap_addr;
