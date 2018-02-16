@@ -33,14 +33,12 @@
 // There can be no break statement or variable declaration in
 // the program segment measured by the time begin & end macros.
 #define stats_time_begin()  \
-  do {                      \
-    struct timeval t1, t2;  \
-    gettimeofday(&t1, NULL)
+  struct timeval _t1, _t2;  \
+  gettimeofday(&_t1, NULL)
 
 #define stats_time_end(RESULT) \
-    gettimeofday(&t2, NULL);   \
-    RESULT = TDIFFMS(t1, t2);  \
-  } while (0)
+    gettimeofday(&_t2, NULL);   \
+    RESULT = TDIFFMS(_t1, _t2);
 
 #else
 
@@ -51,7 +49,14 @@
 
 struct mps_stats {
   pthread_mutex_t mutex;
-  volatile float cudaMemcpy_time;
+  double time_load_region;
+  double time_load_region_pta;
+  double time_load_region_memset;
+  double time_sync_block;
+  double time_syncStoD;
+  double time_syncDtoS;
+  double time_syncDtoS1;
+  double time_memcpyDtoD;
 };
 
 #endif

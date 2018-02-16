@@ -69,6 +69,8 @@ struct mps_region {
   int32_t memset_value;
   uint32_t nblocks;
   uint32_t flags;
+  uint32_t persist_swap_valid;
+  uint32_t persist_gpu_valid;
   volatile uint32_t using_kernels;
   volatile uint32_t n_input;
   volatile uint32_t n_output;

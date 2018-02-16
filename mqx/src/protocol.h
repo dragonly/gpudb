@@ -41,10 +41,11 @@
 #define MAX_ARG_NUM   16
 #define MAX_CLIENTS   32
 #define DMA_NBUF      2
-#define DMA_BUF_SIZE  (512L * 1024)
+#define DMA_BUF_SIZE  (512 * 1024)
 
 struct mps_dma_channel {
   uint8_t ibuf;
+  CUstream stream;
   void *stage_buf[DMA_NBUF];
   CUevent events[DMA_NBUF];
 };

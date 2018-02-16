@@ -87,7 +87,6 @@ int initCUDA() {
 void *worker_thread(void *socket);
 
 struct global_context *pglobal;
-struct mps_stats gstats;
 
 void sigint_handler(int signum) {
   printf("closing server...\n");
@@ -237,8 +236,6 @@ int main(int argc, char **argv) {
   mqx_print(INFO, "Total device memory: %.2f GB (%lu bytes)", pglobal->gpumem_total/1024/1024/1024.0, pglobal->gpumem_total);
   //mqx_print(INFO, "Free device memory : %.2f GB (%lu bytes)", mem_free/1024/1024/1024.0, mem_free);
 
-  pthread_mutex_init(&gstats.mutex, NULL);
-
   signal(SIGINT, sigint_handler);
   signal(SIGKILL, sigint_handler);
 
@@ -321,10 +318,12 @@ fail_cuda:
   checkCudaErrors(cuCtxDestroy(cudaContext));
 }
 
+__thread struct mps_stats stats;
 static volatile uint32_t client_id_max = -1;
 // TODO: support cuda program using multiple streams
 void *worker_thread(void *client_socket) {
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
+  memset(&stats, 0, sizeof(struct mps_stats));
 
   if (pglobal->mps_nclients > MAX_CLIENTS) {
     mqx_print(ERROR, "max client number reached");
@@ -685,6 +684,9 @@ finish:
     dma_channel_destroy(&client->dma_dtoh);
   pthread_mutex_unlock(&pglobal->client_mutex);
 
+  size_t mem_free, mem_total;
+  cuMemGetInfo(&mem_free, &mem_total);
+  mqx_print(INFO, "free device memory: %.2f GB (%lu bytes)", mem_free/1024/1024/1024.0, mem_free);
   free(client_socket);
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
