@@ -69,7 +69,12 @@ struct statistics {
   double time_kernel;      // Time on kernel executions
   double time_attach;      // Time on attaching (mqx_attach)
   double time_load;        // Time on loading (mqx_load)
+  double time_load_cow;
+  double time_load_pta;
+  double time_load_memset;
+  double time_load_default;
   double time_evict;       // Time on eviction (mqx_evict)
+  double time_cuda_context;
   long count_kernels;      // # of kernels launched
 };
 

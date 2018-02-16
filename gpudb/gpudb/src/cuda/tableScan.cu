@@ -41,7 +41,6 @@
  *  -1 if buf2 is larger
  */
 
-extern char *col_buf;
 
 __device__ static inline int stringCmp(char *buf1, char *buf2, int size) {
   int i;
@@ -968,9 +967,11 @@ extern "C" __global__ void unpack_rle_ts(char *fact, char *rle, long tupleNum, i
 
 struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
-  struct timeval t;
+  extern char *col_buf;
+  //struct timeval t;
 
   struct timespec start, end;
+  struct timespec startdisk, enddisk;
   clock_gettime(CLOCK_REALTIME, &start);
 
   struct tableNode *res = NULL;
@@ -1094,10 +1095,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
     if (format == UNCOMPRESSED) {
       if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-        gettimeofday(&t, NULL);
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
         memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-        gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1205,10 +1209,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
       CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(gpuDictHeader, dheader, sizeof(struct dictHeader), cudaMemcpyHostToDevice));
 
       if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-        gettimeofday(&t, NULL);
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
         memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-        gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1229,10 +1236,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
     } else if (format == RLE) {
 
       if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-        gettimeofday(&t, NULL);
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
         memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-        gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+        //gettimeofday(&t, NULL);
         // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
         CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                           (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1298,10 +1308,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
         if (format == DICT) {
           if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-            gettimeofday(&t, NULL);
+            //gettimeofday(&t, NULL);
             // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
             memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-            gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+            //gettimeofday(&t, NULL);
             // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
             CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                               (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1328,10 +1341,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
         } else {
           if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-            gettimeofday(&t, NULL);
+            //gettimeofday(&t, NULL);
             // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
             memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-            gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+            //gettimeofday(&t, NULL);
             // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
             CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[whereIndex], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                               (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1633,10 +1649,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
       if (sn->tn->dataFormat[index] != DICT) {
         if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-          gettimeofday(&t, NULL);
+          //gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
           memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-          gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+          //gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
           CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(scanCol[i], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                             (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));
@@ -1646,10 +1665,13 @@ struct tableNode *tableScan(struct scanNode *sn, struct statistic *pp) {
 
       } else {
         if (sn->tn->dataPos[index] == MEM || sn->tn->dataPos[index] == MMAP || sn->tn->dataPos[index] == PINNED) {
-          gettimeofday(&t, NULL);
+          //gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
           memcpy(col_buf, sn->tn->content[index], sn->tn->attrTotalSize[index]);
-          gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+          //gettimeofday(&t, NULL);
           // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
           CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(scanCol[i], sn->tn->content[index], sn->tn->attrTotalSize[index],
                                             (enum cudaMemcpyKind)(cudaMemcpyHostToDevice)));

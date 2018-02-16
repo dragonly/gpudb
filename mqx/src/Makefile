@@ -20,7 +20,7 @@ OBJS = $(SRCS:.c=.o)
 # Compiler/linker settings
 CC := gcc
 NVCC := $(CUDAPATH)/bin/nvcc
-CFLAGS := -g -Wall -fPIC -fvisibility=hidden -I$(CUDAPATH)/include \
+CFLAGS := -g -pg -Wall -fPIC -fvisibility=hidden -I$(CUDAPATH)/include \
           -DCUDAPATH=\"$(CUDAPATH)\" -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) \
           $(FLAG_PRINT_BUFFER) $(MQX_CONFIGS)
 LDFLAGS := -shared -pthread -ldl
@@ -48,7 +48,7 @@ mqxctl.o : mqxctl.c common.h protocol.h spinlock.h list.h atomic.h
 	$(NVCC) -c --compiler-options -Wall -DMQX_PRINT_LEVEL=$(PRINT_LEVEL) -I$(CUDAPATH)/include -arch=sm_61 $< -o $@
 
 $(LIBNAME): $(OBJS)
-	$(CC) $(LDFLAGS) $(OBJS) -o $@
+	$(CC) -pg $(LDFLAGS) $(OBJS) -o $@
 
 clean:
 	-rm -f mqxctl $(LIBNAME) *.o .depend

@@ -368,10 +368,10 @@ cudaError_t mqx_cudaMemcpyHtoD(void *dst, const void *src, size_t count) {
     return cudaErrorInvalidValue;
   }
 
-  stats_time_begin();
+  //stats_time_begin();
   if (mqx_htod(r, dst, src, count) < 0)
     return cudaErrorUnknown;
-  stats_time_end(&local_ctx->stats, time_htod);
+  //stats_time_end(&local_ctx->stats, time_htod);
   stats_inc(&local_ctx->stats, bytes_htod, count);
 
   return cudaSuccess;
@@ -395,10 +395,10 @@ cudaError_t mqx_cudaMemcpyDtoH(void *dst, const void *src, size_t count) {
     return cudaErrorInvalidValue;
   }
 
-  stats_time_begin();
+  //stats_time_begin();
   if (mqx_dtoh(r, dst, src, count) < 0)
     return cudaErrorUnknown;
-  stats_time_end(&local_ctx->stats, time_dtoh);
+  //stats_time_end(&local_ctx->stats, time_dtoh);
   stats_inc(&local_ctx->stats, bytes_dtoh, count);
 
   return cudaSuccess;
@@ -881,6 +881,7 @@ static int mqx_memcpy_dtoh(void *dst, const void *src, unsigned long size) {
       delta;
   int ret = 0, ibuf_old;
 
+  stats_time_begin();
   dma_begin(chan);
 
   // First issue DtoH commands for all staging buffers
@@ -937,6 +938,7 @@ static int mqx_memcpy_dtoh(void *dst, const void *src, unsigned long size) {
 
 finish:
   dma_end(chan);
+  stats_time_end(&local_ctx->stats, time_dtoh);
   return ret;
 }
 
@@ -945,6 +947,7 @@ static int mqx_memcpy_htod(void *dst, const void *src, unsigned long size) {
   unsigned long off, delta;
   int ret = 0, ilast;
 
+  stats_time_begin();
   dma_begin(chan);
 
   off = 0;
@@ -982,6 +985,7 @@ static int mqx_memcpy_htod(void *dst, const void *src, unsigned long size) {
 
 finish:
   dma_end(chan);
+  stats_time_end(&local_ctx->stats, time_htod);
   return ret;
 }
 
@@ -1710,6 +1714,7 @@ static int mqx_dtod(struct region *rd, struct region *rs, void *dst, const void 
             rd, rd->swp_addr, rd->size, rd->flags, rd->state, rs, rs->swp_addr, rs->size, rs->flags, rs->state, dst,
             src, count);
 
+  stats_time_begin();
   // NOTE: This *malloc* must be malloc, not __libc_malloc, to
   // make COW work for temp when it is freed later.
   temp = malloc(count);
@@ -1728,6 +1733,7 @@ static int mqx_dtod(struct region *rd, struct region *rs, void *dst, const void 
     __libc_free(temp);
     return -1;
   }
+  stats_time_end(&local_ctx->stats, time_dtod);
 
   // NOTE: This *free* must be free, not __libc_free, so that
   // temp, if set COW, can have its data transferred to dst
@@ -2129,13 +2135,20 @@ static int region_load_pta(struct region *r) {
 static int region_load(struct region *r) {
   int i, ret = 0;
 
-  if (r->flags & FLAG_COW)
+  if (r->flags & FLAG_COW) {
+  stats_time_begin();
     ret = region_load_cow(r);
-  else if (r->flags & FLAG_MEMSET)
+  stats_time_end(&local_ctx->stats, time_load_cow);
+  } else if (r->flags & FLAG_MEMSET) {
+  stats_time_begin();
     ret = region_load_memset(r);
-  else if (r->flags & FLAG_PTARRAY)
+  stats_time_end(&local_ctx->stats, time_load_memset);
+  } else if (r->flags & FLAG_PTARRAY) {
+  stats_time_begin();
     ret = region_load_pta(r);
-  else {
+  stats_time_end(&local_ctx->stats, time_load_pta);
+  } else {
+  stats_time_begin();
     mqx_print(DEBUG, "Loading region %p", r);
     for (i = 0; i < NRBLOCKS(r->size); i++) {
       acquire(&r->blocks[i].lock);
@@ -2148,6 +2161,7 @@ static int region_load(struct region *r) {
       }
     }
     mqx_print(DEBUG, "Region loaded");
+  stats_time_end(&local_ctx->stats, time_load_default);
   }
 
 finish:

@@ -43,13 +43,13 @@ gpudb: gpu cpu
 	 $(NVCC) -pg $(OBJ) driver.o -L$(CUDA_LIB_PATH) $(LDFLAGS) -o GPUDATABASE
 
 gmm: $(SRC)
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC)
+	$(NVCC) -c -pg $(GENCODE_FLAGS) $(CFLAGS) -DHAS_GMM $(SRC)
 
 cpu: driver.cu 
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) driver.cu
+	$(NVCC) -c -pg $(GENCODE_FLAGS) $(CFLAGS) driver.cu
 
 gpu: $(SRC)
-	$(NVCC) -c -g $(GENCODE_FLAGS) $(CFLAGS) $(SRC)
+	$(NVCC) -c -pg $(GENCODE_FLAGS) $(CFLAGS) $(SRC)
 
 run:
 	LD_PRELOAD=../../../lib-intercept/libicept.so ./GPUDATABASE --datadir ../../data

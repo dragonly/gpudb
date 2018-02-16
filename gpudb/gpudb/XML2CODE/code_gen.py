@@ -893,7 +893,7 @@ def generate_code(tree):
     print >>fo, "\tdouble diskTotal = 0;"
     print >>fo, "\tclock_gettime(CLOCK_REALTIME,&start);"
     print >>fo, "\tstruct statistic pp;"
-    print >>fo, "\tpp.total = pp.kernel = pp.pcie = 0;"
+    print >>fo, "\tpp.total = pp.kernel = pp.disk = pp.pcie = 0;"
 
     resultNode = "result"
     joinAttr = JoinTranslation()
@@ -2153,10 +2153,13 @@ def generate_code(tree):
 
     print >>fo, "\tclock_gettime(CLOCK_REALTIME,&end);"
     print >>fo, "\tdouble timeE = (end.tv_sec -  start.tv_sec)* BILLION + end.tv_nsec - start.tv_nsec;"
+    print >>fo, "\tprintf(\"===============STATS================\\n\");"
+    print >>fo, "\tdiskTotal += pp.disk;"
     print >>fo, "\tprintf(\"Disk Load Time: %lf\\n\", diskTotal/(1000*1000));"
-    print >>fo, "\tprintf(\"PCIe Time: %lf\\n\",pp.pcie);"
-    print >>fo, "\tprintf(\"Kernel Time: %lf\\n\",pp.kernel);"
+    #print >>fo, "\tprintf(\"PCIe Time: %lf\\n\",pp.pcie);"
+    #print >>fo, "\tprintf(\"Kernel Time: %lf\\n\",pp.kernel);"
     print >>fo, "\tprintf(\"Total Time: %lf\\n\", timeE/(1000*1000));"
+    print >>fo, "\tprintf(\"Query Execution Time: %lf\\n\", (timeE-diskTotal)/(1000*1000));"
     print >>fo, "\treturn 0;"
     print >>fo, "}\n"
 

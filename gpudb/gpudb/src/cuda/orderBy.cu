@@ -547,9 +547,10 @@ extern "C" __global__ void gather_result(int *keyPos, char **col, int newNum, in
 
 struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
   extern char *col_buf;
-  struct timeval t;
+  //struct timeval t;
   struct tableNode *res = NULL;
   struct timespec start, end;
+  struct timespec startdisk, enddisk;
 
   clock_gettime(CLOCK_REALTIME, &start);
 
@@ -599,10 +600,13 @@ struct tableNode *orderBy(struct orderByNode *odNode, struct statistic *pp) {
     int attrSize = res->attrSize[i];
     if (odNode->table->dataPos[i] == MEM) {
       CUDA_SAFE_CALL_NO_SYNC(cudaMalloc((void **)&column[i], attrSize * res->tupleNum));
-      gettimeofday(&t, NULL);
+      //gettimeofday(&t, NULL);
       // printf("[gvm] %lf intercepting diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
+  clock_gettime(CLOCK_REALTIME, &startdisk);
       memcpy(col_buf, odNode->table->content[i], attrSize * res->tupleNum);
-      gettimeofday(&t, NULL);
+  clock_gettime(CLOCK_REALTIME, &enddisk);
+  pp->disk += (enddisk.tv_sec - startdisk.tv_sec) * BILLION + enddisk.tv_nsec - startdisk.tv_nsec;
+      //gettimeofday(&t, NULL);
       // printf("[gvm] %lf intercepted diskIO\n", t.tv_sec + t.tv_usec / 1000000.0);
       CUDA_SAFE_CALL_NO_SYNC(cudaMemcpy(column[i], col_buf, attrSize * res->tupleNum, cudaMemcpyHostToDevice));
     } else if (odNode->table->dataPos[i] == GPU) {

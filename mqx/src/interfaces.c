@@ -25,6 +25,7 @@
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "advice.h"
 #include "client.h"
@@ -58,6 +59,58 @@ cudaError_t (*nv_cudaStreamAddCallback)(cudaStream_t, cudaStreamCallback_t, void
 
 // Indicates whether the MQX environment has been initialized successfully.
 volatile int initialized = 0;
+static struct istat {
+  double time_context;
+  double time_cudaMalloc;
+  double time_cudaFree;
+  double time_cudaMemcpyDtoH;
+  double time_cudaMemcpyDtoD;
+  double time_cudaMemcpyHtoH;
+  double time_cudaMemcpyHtoD;
+  double time_cudaMemcpyDefault;
+  double time_cudaMemset;
+  double time_cudaMemGetInfo;
+  double time_cudaConfigureCall;
+  double time_cudaSetupArgument;
+  double time_cudaLaunch;
+  double time_cudaAdvise;
+} istat;
+struct timeval t1, t2;
+
+// The library destructor.
+__attribute__((destructor)) void mqx_fini(void) {
+  if (initialized) {
+    cow_fini();
+    // NOTE: context_fini has to happen before client_fini
+    // because garbage collections need to update global info.
+    // XXX: Possible bugs if client thread is busy when context
+    // is being freed?
+    context_fini();
+    client_fini();
+    initialized = 0;
+  }
+  mqx_print(DEBUG, "MQX finished.");
+  // NOTE: mqx_print_fini has to be the last called function before
+  // the library is unloaded so that all mqx_print messages can get
+  // recorded and printed correctly if MQX_PRINT_BUFFER is enabled.
+  mqx_print_fini();
+
+  mqx_print(STAT, "====== MQX Time ======");
+  mqx_print(STAT, "CUDA Context       %.3lf", istat.time_context);
+  mqx_print(STAT, "cudaMalloc         %.3lf", istat.time_cudaMalloc);
+  mqx_print(STAT, "cudaFree           %.3lf", istat.time_cudaFree);
+  mqx_print(STAT, "cudaMemcpyHtoD     %.3lf", istat.time_cudaMemcpyHtoD);
+  mqx_print(STAT, "cudaMemcpyDtoH     %.3lf", istat.time_cudaMemcpyDtoH);
+  //mqx_print(STAT, "cudaMemcpyDtoD     %.3lf", istat.time_cudaMemcpyDtoD);
+  //mqx_print(STAT, "cudaMemcpyHtoH     %.3lf", istat.time_cudaMemcpyHtoH);
+  mqx_print(STAT, "cudaMemset         %.3lf", istat.time_cudaMemset);
+  //mqx_print(STAT, "cudaMemGetInfo     %.3lf", istat.time_cudaMemGetInfo);
+  //mqx_print(STAT, "cudaConfigureCall  %.3lf", istat.time_cudaConfigureCall);
+  //mqx_print(STAT, "cudaSetupArgument  %.3lf", istat.time_cudaSetupArgument);
+  mqx_print(STAT, "cudaLaunch         %.3lf", istat.time_cudaLaunch);
+  //mqx_print(STAT, "cudaAdvise         %.3lf", istat.time_cudaAdvise);
+  mqx_print(STAT, "MQX Total          %.3lf", istat.time_cudaMalloc + istat.time_cudaFree + istat.time_cudaMemcpyHtoD + istat.time_cudaMemcpyDtoH + istat.time_cudaMemcpyDtoD + istat.time_cudaMemcpyHtoH + istat.time_cudaMemset + istat.time_cudaMemGetInfo + istat.time_cudaConfigureCall + istat.time_cudaSetupArgument + istat.time_cudaLaunch + istat.time_cudaAdvise);
+}
 
 // The library constructor.
 // The order of initialization matters. First, link to the default
@@ -90,6 +143,30 @@ __attribute__((constructor)) void mqx_init(void) {
   DEFAULT_API_POINTER("cudaLaunch", nv_cudaLaunch);
   DEFAULT_API_POINTER("cudaStreamAddCallback", nv_cudaStreamAddCallback);
 
+  // Warm up the underlying CUDA runtime environment.
+  // The user program may call cudaMalloc and cudaFree to warm up
+  // the device. But since these APIs have been intercepted by our
+  // library, and device memory space is not immediately allocated,
+  // we have to invoke the default cudaMalloc and cudaFree functions
+  // to warm up the device here.
+  memset(&istat, 0, sizeof(struct istat));
+  {
+    gettimeofday(&t1, NULL);
+    int count;
+    if (cudaGetDeviceCount(&count) != cudaSuccess) {
+      mqx_print(FATAL, "Dummy CUDA call failed.");
+      cow_fini();
+      // NOTE: context_fini has to happen before client_fini.
+      // See mqx_fini for reasons.
+      context_fini();
+      client_fini();
+      return;
+    }
+    gettimeofday(&t2, NULL);
+    printf("Device Count: %d\n", count);
+    istat.time_context = TDIFF(t1, t2);
+  }
+
   mqx_print_init();
   if (context_init()) {
     mqx_print(FATAL, "Failed to initialize MQX local context.");
@@ -116,55 +193,20 @@ __attribute__((constructor)) void mqx_init(void) {
   nv_cudaSetDeviceFlags(cudaDeviceMapHost);
 #endif
 
-  // Warm up the underlying CUDA runtime environment.
-  // The user program may call cudaMalloc and cudaFree to warm up
-  // the device. But since these APIs have been intercepted by our
-  // library, and device memory space is not immediately allocated,
-  // we have to invoke the default cudaMalloc and cudaFree functions
-  // to warm up the device here.
-  {
-    void *dummy;
-    if (nv_cudaMalloc(&dummy, 1 << 10) != cudaSuccess) {
-      mqx_print(FATAL, "Dummy CUDA malloc failed.");
-      cow_fini();
-      // NOTE: context_fini has to happen before client_fini.
-      // See mqx_fini for reasons.
-      context_fini();
-      client_fini();
-      return;
-    }
-    nv_cudaFree(dummy);
-  }
   initialized = 1;
   mqx_print(DEBUG, "MQX initialized.");
-}
-
-// The library destructor.
-__attribute__((destructor)) void mqx_fini(void) {
-  if (initialized) {
-    cow_fini();
-    // NOTE: context_fini has to happen before client_fini
-    // because garbage collections need to update global info.
-    // XXX: Possible bugs if client thread is busy when context
-    // is being freed?
-    context_fini();
-    client_fini();
-    initialized = 0;
-  }
-  mqx_print(DEBUG, "MQX finished.");
-  // NOTE: mqx_print_fini has to be the last called function before
-  // the library is unloaded so that all mqx_print messages can get
-  // recorded and printed correctly if MQX_PRINT_BUFFER is enabled.
-  mqx_print_fini();
 }
 
 MQX_EXPORT
 cudaError_t cudaMalloc(void **devPtr, size_t size) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaMalloc(devPtr, size, 0);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaMalloc += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaMalloc called when MQX is uninitialized.");
     mqx_profile("cudaMalloc begin %lu", size);
     ret = nv_cudaMalloc(devPtr, size);
@@ -180,9 +222,12 @@ MQX_EXPORT
 cudaError_t cudaMallocEx(void **devPtr, size_t size, int flags) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaMalloc(devPtr, size, flags);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaMalloc += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaMallocEx called when MQX is uninitialized.");
     mqx_profile("cudaMalloc begin %lu", size);
     ret = nv_cudaMalloc(devPtr, size);
@@ -204,9 +249,12 @@ MQX_EXPORT
 cudaError_t cudaFree(void *devPtr) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaFree(devPtr);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaFree += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaFree called when MQX is uninitialized.");
     mqx_profile("cudaFree begin %p", devPtr);
     ret = nv_cudaFree(devPtr);
@@ -221,18 +269,29 @@ cudaError_t cudaMemcpy(void *dst, const void *src, size_t count, enum cudaMemcpy
   cudaError_t ret;
 
   if (initialized) {
-    if (kind == cudaMemcpyHostToDevice)
+    gettimeofday(&t1, NULL);
+    if (kind == cudaMemcpyHostToDevice) {
       ret = mqx_cudaMemcpyHtoD(dst, src, count);
-    else if (kind == cudaMemcpyDeviceToHost)
+      gettimeofday(&t2, NULL);
+      istat.time_cudaMemcpyHtoD += TDIFF(t1, t2);
+    } else if (kind == cudaMemcpyDeviceToHost) {
       ret = mqx_cudaMemcpyDtoH(dst, src, count);
-    else if (kind == cudaMemcpyDeviceToDevice)
+      gettimeofday(&t2, NULL);
+      istat.time_cudaMemcpyDtoH += TDIFF(t1, t2);
+    } else if (kind == cudaMemcpyDeviceToDevice) {
       ret = mqx_cudaMemcpyDtoD(dst, src, count);
-    else if (kind == cudaMemcpyDefault)
+      gettimeofday(&t2, NULL);
+      istat.time_cudaMemcpyDtoD += TDIFF(t1, t2);
+    } else if (kind == cudaMemcpyDefault) {
       ret = mqx_cudaMemcpyDefault(dst, src, count);
-    else {
+      gettimeofday(&t2, NULL);
+      istat.time_cudaMemcpyDefault += TDIFF(t1, t2);
+    } else {
       // Host-to-host memory copy does not need to go
       // through MQX's management.
       ret = nv_cudaMemcpy(dst, src, count, kind);
+      gettimeofday(&t2, NULL);
+      istat.time_cudaMemcpyHtoH += TDIFF(t1, t2);
     }
   } else {
     mqx_print(WARN, "cudaMemcpy called when MQX is uninitialized.");
@@ -250,9 +309,12 @@ MQX_EXPORT
 cudaError_t cudaMemset(void *devPtr, int value, size_t count) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaMemset(devPtr, value, count);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaMemset += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaMemset called when MQX is uninitialized.");
     mqx_profile("cudaMemset begin %lu", count);
     ret = nv_cudaMemset(devPtr, value, count);
@@ -268,9 +330,12 @@ MQX_EXPORT
 cudaError_t cudaMemGetInfo(size_t *size_free, size_t *size_total) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaMemGetInfo(size_free, size_total);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaMemGetInfo += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaMemGetInfo called when MQX is uninitialized.");
     ret = nv_cudaMemGetInfo(size_free, size_total);
   }
@@ -282,9 +347,12 @@ MQX_EXPORT
 cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaConfigureCall(gridDim, blockDim, sharedMem, stream);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaConfigureCall += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaConfigureCall called when MQX is uninitialized.");
     mqx_profile("cudaConfigureCall");
     ret = nv_cudaConfigureCall(gridDim, blockDim, sharedMem, stream);
@@ -297,9 +365,12 @@ MQX_EXPORT
 cudaError_t cudaSetupArgument(const void *arg, size_t size, size_t offset) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaSetupArgument(arg, size, offset);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaSetupArgument += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaSetupArgument called when MQX is uninitialized.");
     if (size == sizeof(void *))
       mqx_profile("cudaSetupArgument %lu %p", size, *(void **)arg);
@@ -315,9 +386,12 @@ MQX_EXPORT
 cudaError_t cudaLaunch(const void *entry) {
   cudaError_t ret;
 
-  if (initialized)
+  if (initialized) {
+    gettimeofday(&t1, NULL);
     ret = mqx_cudaLaunch(entry);
-  else {
+    gettimeofday(&t2, NULL);
+    istat.time_cudaLaunch += TDIFF(t1, t2);
+  } else {
     mqx_print(WARN, "cudaLaunch called when MQX is uninitialized.");
     mqx_profile("cudaLaunch begin");
     ret = nv_cudaLaunch(entry);
@@ -366,6 +440,7 @@ cudaError_t cudaAdvise(int which_arg, int advice) {
 #endif
   }
 
+  gettimeofday(&t1, NULL);
   if (which_arg >= 0 && which_arg < MAX_ARGS) {
     for (i = 0; i < nadvices; i++) {
       if (advice_refs[i] == which_arg)
@@ -382,6 +457,8 @@ cudaError_t cudaAdvise(int which_arg, int advice) {
     mqx_print(ERROR, "Bad cudaAdvise argument %d (max %d).", which_arg, MAX_ARGS - 1);
     return cudaErrorInvalidValue;
   }
+  gettimeofday(&t2, NULL);
+  istat.time_cudaAdvise += TDIFF(t1, t2);
 
   return cudaSuccess;
 }

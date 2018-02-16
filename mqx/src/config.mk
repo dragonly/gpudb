@@ -18,7 +18,7 @@ MQX_CONFIGS += -DMQX_CONFIG_STATS
 # GPU device. Therefore, this flag should be turned on only during
 # development.
 # DO NOT turn on unless knowing how it works!
-#MQX_CONFIGS += -DMQX_CONFIG_STAT_KERNEL_TIME
+MQX_CONFIGS += -DMQX_CONFIG_STAT_KERNEL_TIME
 
 # Enable profiling.
 # This is used to profile basic application DMA and kernel statistics

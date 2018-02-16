@@ -226,6 +226,7 @@ struct materializeNode{
 struct statistic{
     float kernel;
     float pcie;
+    double disk;
     float total;
 };
 
