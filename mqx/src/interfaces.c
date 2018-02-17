@@ -152,8 +152,8 @@ __attribute__((constructor)) void mqx_init(void) {
   memset(&istat, 0, sizeof(struct istat));
   {
     gettimeofday(&t1, NULL);
-    int count;
-    if (cudaGetDeviceCount(&count) != cudaSuccess) {
+    void *dummy;
+    if (nv_cudaMalloc(&dummy, 1) != cudaSuccess) {
       mqx_print(FATAL, "Dummy CUDA call failed.");
       cow_fini();
       // NOTE: context_fini has to happen before client_fini.
@@ -162,8 +162,9 @@ __attribute__((constructor)) void mqx_init(void) {
       client_fini();
       return;
     }
+    printf("dummy: %p\n", dummy);
+    nv_cudaFree(dummy);
     gettimeofday(&t2, NULL);
-    printf("Device Count: %d\n", count);
     istat.time_context = TDIFF(t1, t2);
   }
 

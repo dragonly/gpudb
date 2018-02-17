@@ -29,8 +29,8 @@ for query in os.listdir(querypath):
 	# load the column
 	cmd = preloadlib + './' + query + ' --datadir ' + datapath
 	os.system(cmd)
-	cmd = 'rm -f ' + outpath + query + '.solo'
-	os.system(cmd)
-	for i in range(0, rep):
-		cmd = preloadlib + './' + query + ' --datadir ' + datapath + ' >> ' + outpath + query + '.solo'
-		os.system(cmd)
+	#cmd = 'rm -f ' + outpath + query + '.solo'
+	#os.system(cmd)
+	#for i in range(0, rep):
+	#	cmd = preloadlib + './' + query + ' --datadir ' + datapath + ' >> ' + outpath + query + '.solo'
+	#	os.system(cmd)

@@ -60,7 +60,7 @@ for plan in plans:
 		print script
 		os.system(script)
 
-	time.sleep(30)
+	time.sleep(40)
 	cmd=' '
 	os.system(cmd) # like press an enter for the last '&'
 	for query in querys:
