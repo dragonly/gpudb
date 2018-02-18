@@ -88,9 +88,13 @@ void *worker_thread(void *socket);
 
 struct global_context *pglobal;
 
+static int server_socket;
 void sigint_handler(int signum) {
   printf("closing server...\n");
+  close(server_socket);
   unlink(SERVER_SOCKET_FILE);
+  dma_channel_destroy(&pglobal->dma_htod);
+  dma_channel_destroy(&pglobal->dma_dtoh);
   checkCudaErrors(cuCtxDestroy(cudaContext));
   mpsserver_printStats();
   exit(0);
@@ -193,6 +197,7 @@ cudaError_t preload_columns() {
 
 int main(int argc, char **argv) {
   if (initCUDA() == -1) goto fail_cuda;
+  signal(SIGINT, sigint_handler);
   //mqx_print(DEBUG, "early exit for debugging"); exit(0);
   
   int opt;
@@ -236,14 +241,14 @@ int main(int argc, char **argv) {
   mqx_print(INFO, "Total device memory: %.2f GB (%lu bytes)", pglobal->gpumem_total/1024/1024/1024.0, pglobal->gpumem_total);
   //mqx_print(INFO, "Free device memory : %.2f GB (%lu bytes)", mem_free/1024/1024/1024.0, mem_free);
 
-  signal(SIGINT, sigint_handler);
-  signal(SIGKILL, sigint_handler);
+  //signal(SIGKILL, sigint_handler);
 
   if (preload_columns() != cudaSuccess) goto fail_load_col;
+  dma_channel_init(&pglobal->dma_htod, 1/*isHtoD*/);
+  dma_channel_init(&pglobal->dma_dtoh, 0);
   mpsserver_printStats();
 
   mqx_print(DEBUG, "initializing server socket");
-  int server_socket;
   struct sockaddr_un server;
   server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
   if (socket < 0) {
@@ -297,6 +302,8 @@ bind:
   pthread_mutex_destroy(&pglobal->alloc_mutex);
   pthread_mutex_destroy(&pglobal->attach_mutex);
   pthread_mutex_destroy(&pglobal->launch_mutex);
+  dma_channel_destroy(&pglobal->dma_htod);
+  dma_channel_destroy(&pglobal->dma_dtoh);
   struct list_head *pos;
   struct mps_region *rgn;
   list_for_each(pos, &pglobal->allocated_regions) {
@@ -355,8 +362,8 @@ take_client_pos:
   client->nrgns = 0;
   checkCudaErrors(cuStreamCreate(&client->stream, CU_STREAM_DEFAULT));
   // TODO: init dma channels on server startup
-  dma_channel_init(&client->dma_htod, 1/*isHtoD*/);
-  dma_channel_init(&client->dma_dtoh, 0);
+  //dma_channel_init(&client->dma_htod, 1/*isHtoD*/);
+  //dma_channel_init(&client->dma_dtoh, 0);
   client->kconf.ktop = client->kconf.kstack;
   client->kconf.nargs = 0;
   client->kconf.nadvices = 0;
@@ -680,8 +687,8 @@ finish:
     client_destroy(client);
     client->id = -1;
     checkCudaErrors(cuStreamDestroy(client->stream));
-    dma_channel_destroy(&client->dma_htod);
-    dma_channel_destroy(&client->dma_dtoh);
+    //dma_channel_destroy(&client->dma_htod);
+    //dma_channel_destroy(&client->dma_dtoh);
   pthread_mutex_unlock(&pglobal->client_mutex);
 
   size_t mem_free, mem_total;

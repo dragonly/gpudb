@@ -6,6 +6,7 @@
 *.solo
 *.cubin
 *.out
+*.nvprof
 .metadata
 log
 mps_testclient

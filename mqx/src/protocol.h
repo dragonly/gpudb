@@ -48,6 +48,7 @@ struct mps_dma_channel {
   CUstream stream;
   void *stage_buf[DMA_NBUF];
   CUevent events[DMA_NBUF];
+  pthread_mutex_t mutex;
 };
 struct mps_karg_dptr_arg {
   struct mps_region *rgn;  // The region this argument points to
@@ -83,8 +84,6 @@ struct mps_client {
   CUstream stream;
   struct mps_region *rgns[MAX_CLIENT_REGIONS];
   uint32_t nrgns;
-  struct mps_dma_channel dma_htod;
-  struct mps_dma_channel dma_dtoh;
   struct client_kernel_conf kconf;  // per-client kernel configurations
 };
 struct server_stats {
@@ -150,6 +149,8 @@ struct global_context {
   struct list_head attached_regions;
   pthread_mutex_t attach_mutex;
   pthread_mutex_t launch_mutex;
+  struct mps_dma_channel dma_dtoh;
+  struct mps_dma_channel dma_htod;
 };
 
 #endif

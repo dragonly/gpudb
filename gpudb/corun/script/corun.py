@@ -21,12 +21,13 @@ if os.path.exists(outpath):
 os.mkdir(outpath)
 
 plans = open(plan_file, "r").readlines()
-plans = [p.strip() for p in plans if p.find('q3_1') != -1]
+plans = [p.strip() for p in plans]
+#plans = [p.strip() for p in plans if p.find('q3_1') != -1]
 print plans
-#i = plans.index('q3_1 q4_2')
-#plans = plans[i:]
-#print i
-#print plans
+i = plans.index('q3_2 q4_1')
+plans = plans[i:]
+print i
+print plans
 
 for plan in plans:
     output = outpath + plan.strip().replace(' ', '.') + '/'
@@ -58,7 +59,7 @@ for plan in plans:
         #print script
         os.system(script)
 
-    time.sleep(3)
+    time.sleep(5)
     #cmd=' '
     #os.system(cmd) # like press an enter for the last '&'
     #for query in querys:

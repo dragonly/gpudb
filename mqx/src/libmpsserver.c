@@ -64,14 +64,14 @@ extern struct column_data shared_columns[NCOLUMN];
 void mpsserver_printStats() {
 #ifdef MPS_CONFIG_STATS
   mqx_print(STAT, "================= STATS =================");
-  mqx_print(STAT, "load_region time:         %.3lf ms", stats.time_load_region);
-  mqx_print(STAT, "load_region_pta time:     %.3lf ms", stats.time_load_region_pta);
-  mqx_print(STAT, "load_region_memset time:  %.3lf ms", stats.time_load_region_memset);
-  mqx_print(STAT, "load_region total time:   %.3lf ms", stats.time_load_region + stats.time_load_region_pta + stats.time_load_region_memset);
+  //mqx_print(STAT, "load_region time:         %.3lf ms", stats.time_load_region);
+  //mqx_print(STAT, "load_region_pta time:     %.3lf ms", stats.time_load_region_pta);
+  //mqx_print(STAT, "load_region_memset time:  %.3lf ms", stats.time_load_region_memset);
+  //mqx_print(STAT, "load_region total time:   %.3lf ms", stats.time_load_region + stats.time_load_region_pta + stats.time_load_region_memset);
   mqx_print(STAT, "sync_block time:          %.3lf ms", stats.time_sync_block);
   mqx_print(STAT, "syncStoD time:            %.3lf ms", stats.time_syncStoD);
   mqx_print(STAT, "syncDtoS time:            %.3lf ms", stats.time_syncDtoS);
-  mqx_print(STAT, "syncDtoS1 time:           %.3lf ms", stats.time_syncDtoS1);
+  //mqx_print(STAT, "syncDtoS1 time:           %.3lf ms", stats.time_syncDtoS1);
   mqx_print(STAT, "memcpyDtoD time:          %.3lf ms", stats.time_memcpyDtoD);
   mqx_print(STAT, "=========================================");
 #endif
@@ -1337,7 +1337,8 @@ static cudaError_t mpsserver_sync_block(struct mps_client *client, struct mps_re
 static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst, CUdeviceptr src, size_t size) {
   double time;
   stats_time_begin();
-  struct mps_dma_channel *channel = &client->dma_dtoh;
+  pthread_mutex_lock(&pglobal->dma_dtoh.mutex);
+  struct mps_dma_channel *channel = &pglobal->dma_dtoh;
   cudaError_t ret = cudaSuccess;
   uint64_t offset_dtos, offset_stoh, round_size, ibuflast;
   offset_dtos = 0;
@@ -1391,6 +1392,7 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
     channel->ibuf = (channel->ibuf + 1) % DMA_NBUF;
   }
 end:
+  pthread_mutex_unlock(&pglobal->dma_dtoh.mutex);
   stats_time_end(time);
   stats.time_syncDtoS += time;
   return ret;
@@ -1398,7 +1400,8 @@ end:
 static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdeviceptr dst, void *src, size_t size) {
   double time;
   stats_time_begin();
-  struct mps_dma_channel *channel = &client->dma_htod;
+  pthread_mutex_lock(&pglobal->dma_htod.mutex);
+  struct mps_dma_channel *channel = &pglobal->dma_htod;
   enum cudaError_enum ret;
   uint64_t offset, round_size, ibuflast;
   offset = 0;
@@ -1426,6 +1429,7 @@ static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdevicep
     goto end;
   }
 end:
+  pthread_mutex_unlock(&pglobal->dma_htod.mutex);
   stats_time_end(time);
   stats.time_syncStoD += time;
   return ret;
@@ -1595,6 +1599,7 @@ int dma_channel_init(struct mps_dma_channel *channel, int isHtoD) {
     return -1;
   }
   cuStreamCreate(&channel->stream, CU_STREAM_DEFAULT);
+  pthread_mutex_init(&channel->mutex, NULL);
   return 0;
 }
 void dma_channel_destroy(struct mps_dma_channel *channel) {
@@ -1603,6 +1608,7 @@ void dma_channel_destroy(struct mps_dma_channel *channel) {
     cuMemFreeHost(channel->stage_buf[i]);
   }
   cuStreamDestroy(channel->stream);
+  pthread_mutex_destroy(&channel->mutex);
 }
 static void update_region_evict_cost(struct mps_region *rgn) {
   uint64_t cost = 0;
