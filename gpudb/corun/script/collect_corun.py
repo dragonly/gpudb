@@ -13,9 +13,11 @@ queries = [
 qmap = {}
 for i, q in enumerate(queries):
     qmap[q] = 'q' + str(i + 1)
+    qmap[q] = q.replace('_', '')
 
 def gen(resultdir):
-    os.chdir('../{}/'.format(resultdir))
+    cwd = os.getcwd()
+    os.chdir('../result/{}/'.format(resultdir))
     data_dirs = os.listdir('.')
     data_dirs.sort()
     result = []
@@ -83,6 +85,7 @@ def gen(resultdir):
         result_item.append(round(time / rep, 2))
         result.append(result_item)
 
+    os.chdir(cwd)
     return result
 
 #print result
@@ -94,7 +97,7 @@ result = []
 for mqx, mps in zip(mqx_result, mps_result):
     r = []
     r.append('{}.{}'.format(mps[0], mps[1]))
-    r.append((mqx[2] / mps[2] + mqx[3] / mps[3]) / 2)
+    r.append( (mqx[2] + mqx[3]) / (mps[2] + mps[3]) )
     result.append(r)
 for r in result:
     print '{}, {}'.format(r[0], r[1])
