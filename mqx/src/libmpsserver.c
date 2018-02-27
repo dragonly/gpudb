@@ -20,7 +20,7 @@ static void remove_allocated_region(struct mps_region *rgn);
 static void add_attached_region(struct mps_region*);
 static void remove_attached_region(struct mps_region *rgn);
 static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_region ***prgns, uint32_t *pnrgns);
-static cudaError_t free_region(struct mps_region*);
+static cudaError_t free_region(struct mps_client *client, struct mps_region*);
 static cudaError_t attach_regions(struct mps_region **rgns, uint32_t nrgns);
 static cudaError_t attach_region(struct mps_region *rgn);
 static cudaError_t load_regions(struct mps_client *client, struct mps_region **rgns, uint32_t nrgns);
@@ -111,7 +111,7 @@ void client_destroy(struct mps_client *client) {
   for (int i = 0; i < client->nrgns; i++) {
     rgn = client->rgns[i];
     if (rgn->state != ZOMBIE) {
-      free_region(rgn);
+      free_region(client, rgn);
       destroyed++;
     }
     free(rgn);
@@ -143,7 +143,8 @@ cudaError_t mpsserver_cudaMalloc(struct mps_client *client, void **devPtr, size_
   if (size == 0) {
     mqx_print(WARN, "allocating 0 bytes");
   } else if (size > pglobal->gpumem_total) {
-    mqx_print(ERROR, "out of memory");
+    mqx_print(ERROR, "out of memory (%ld required/%ld total)", size, pglobal->gpumem_total);
+    exit(-1);
     return cudaErrorMemoryAllocation;
   }
   //mqx_print(DEBUG, "allocate %zu bytes, %zu bytes free", size, pglobal->gpumem_total);
@@ -182,7 +183,7 @@ cudaError_t mpsserver_cudaMalloc(struct mps_client *client, void **devPtr, size_
     mqx_print(WARN, "client can only be NULL for preloaded columns");
   }
   *devPtr = rgn->swap_addr;
-  mqx_print(DEBUG, "devPtr(%p) size(%zu)", *devPtr, size);
+  mqx_print_region(DEBUG, rgn, "malloc region");
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemGetInfo(size_t *free, size_t *total) {
@@ -208,17 +209,16 @@ cudaError_t mpsserver_cudaGetDevice(int *device) {
   // NOTE: only handles single device
   return cuDeviceGet(device, 0);
 }
-cudaError_t mpsserver_cudaFree(void *devPtr) {
+cudaError_t mpsserver_cudaFree(struct mps_client *client, void *devPtr) {
   struct mps_region *rgn;
   cudaError_t ret = cudaSuccess;
   if (!(rgn = find_allocated_region(pglobal, devPtr))) {
     mqx_print(ERROR, "invalid device pointer %p", devPtr);
     return cudaErrorInvalidDevicePointer;
   }
-  if ((ret = free_region(rgn) != cudaSuccess)) {
+  if ((ret = free_region(client, rgn) != cudaSuccess)) {
     return ret;
   }
-  mqx_print_region(DEBUG, rgn, "success");
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
@@ -551,7 +551,7 @@ attach:
   }
   kcb->nrgns = nrgns;
 
-  cudaError_t cret;
+  enum cudaError_enum cret;
   uint8_t *kernel_args_buf = malloc(sizeof(void *) * kconf->nargs);
   void **kernel_args_ptr = malloc(sizeof(void *) * kconf->nargs);
   uint32_t offset = 0;
@@ -566,8 +566,8 @@ attach:
     *((void **)kernel_args_ptr + i) = kernel_args_buf + offset;
     offset += kconf->kargs[i].size;
   }
-  checkCudaErrors(cuStreamSynchronize(client->stream));
-  if ((cret = cuLaunchKernel(kernel, kconf->gridDim.x, kconf->gridDim.y, kconf->gridDim.z, kconf->blockDim.x, kconf->blockDim.y, kconf->blockDim.z, kconf->sharedMem, client->stream, kernel_args_ptr, 0)) != cudaSuccess) {
+  //(cuStreamSynchronize(client->stream));
+  if ((cret = cuLaunchKernel(kernel, kconf->gridDim.x, kconf->gridDim.y, kconf->gridDim.z, kconf->blockDim.x, kconf->blockDim.y, kconf->blockDim.z, kconf->sharedMem, client->stream, kernel_args_ptr, 0)) != CUDA_SUCCESS) {
     cuGetErrorString(cret, &_err_buf);
     mqx_print(FATAL, "cuLaunchKernel failed: %s(%d)", _err_buf, cret);
     for (int i = 0; i < nrgns; i++) {
@@ -583,8 +583,29 @@ attach:
     free(kernel_args_ptr);
     return cret;
   }
-  cuStreamAddCallback(client->stream, kernel_finish_callback, (void *)kcb, 0);
-  checkCudaErrors(cuStreamSynchronize(client->stream));
+  //cuStreamAddCallback(client->stream, kernel_finish_callback, (void *)kcb, 0);
+  if ((cret = cuStreamSynchronize(client->stream)) != CUDA_SUCCESS) {
+    mqx_print(FATAL, "synchronization after cuKernelLaunch %s failed (%d)", fname_table[kconf->func_index], cret);
+    for (int i = 0; i < kcb->nrgns; i++) {
+      printf("K %p\n", kcb->rgns[i]);
+    }
+    printf("\n");
+    exit(-1);
+  }
+  for (int i = 0; i < kcb->nrgns; i++) {
+    if (!(kcb->advices[i] & CADV_MASK)) {
+      continue;
+    }
+    if (kcb->advices[i] & CADV_OUTPUT) {
+      __sync_fetch_and_sub(&kcb->rgns[i]->n_output, 1);
+    }
+    if (kcb->advices[i] & CADV_INPUT) {
+      __sync_fetch_and_sub(&kcb->rgns[i]->n_input, 1);
+    }
+    __sync_fetch_and_sub(&kcb->rgns[i]->using_kernels, 1);
+  }
+  free(kcb);
+  //checkCudaErrors(cuStreamSynchronize(client->stream));
   // update clients position in LRU list
   //
   // NOTE: `kcb` cannot be freed here!!! it should be the work of `kernel_finish_callback`
@@ -609,10 +630,11 @@ launch_fail:
 static cudaError_t load_regions(struct mps_client *client, struct mps_region **rgns, uint32_t nrgns) {
   cudaError_t ret = cudaSuccess;
   struct mps_region *rgn;
-  mqx_print(DEBUG, "loading regions, %d in total", nrgns);
+  mqx_print(DEBUG, "start loading regions, %d in total", nrgns);
   for (uint32_t i = 0; i < nrgns; i++) {
     rgn = rgns[i];
     if (rgn->advice & CADV_INPUT) {
+      mqx_print_region(DEBUG, rgn, "start loading input region");
       if ((ret = load_region(client, rgn)) != cudaSuccess) {
         cuGetErrorString(ret, &_err_buf);
         mqx_print_region(ERROR, rgn, "load_region failed, %s(%d)", _err_buf, ret);
@@ -620,6 +642,7 @@ static cudaError_t load_regions(struct mps_client *client, struct mps_region **r
       }
     }
     if (rgn->advice & CADV_OUTPUT) {
+      mqx_print_region(DEBUG, rgn, "start loading output region");
       if (rgn->flags & FLAG_MEMSET) {
         if ((ret = load_region_memset(client, rgn)) != cudaSuccess) {
           cuGetErrorString(ret, &_err_buf);
@@ -637,18 +660,20 @@ static cudaError_t load_regions(struct mps_client *client, struct mps_region **r
 }
 static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn) {
   cudaError_t ret = cudaSuccess;
-  mqx_print_region(DEBUG, rgn, "start loading region");
   double time;
   stats_time_begin();
   if (rgn->flags & FLAG_MEMSET) {
+    mqx_print_region(DEBUG, rgn, "loading FLAG_MEMSET region");
     ret = load_region_memset(client, rgn);
     stats_time_end(time);
     stats.time_load_region_memset += time;
   } else if (rgn->flags & FLAG_PTARRAY) {
+    mqx_print_region(DEBUG, rgn, "loading FLAG_PTARRAY region");
     ret = load_region_pta(client, rgn);
     stats_time_end(time);
     stats.time_load_region_pta += time;
   } else {
+    mqx_print_region(DEBUG, rgn, "loading normal region");
     for (uint32_t i = 0; i < NBLOCKS(rgn->size); i++) {
       if (!rgn->blocks[i].gpu_valid) {
         if ((ret = mpsserver_sync_block(client, rgn, i)) != cudaSuccess) {
@@ -659,7 +684,7 @@ static cudaError_t load_region(struct mps_client *client, struct mps_region *rgn
     }
     stats_time_end(time);
     stats.time_load_region += time;
-    mqx_print(DEBUG, "region is in sync with gpu");
+    mqx_print_region(DEBUG, rgn, "gpu region is in now sync");
   }
   return ret;
 }
@@ -676,23 +701,24 @@ static cudaError_t load_region_memset(struct mps_client *client, struct mps_regi
   return cudaSuccess;
 }
 static cudaError_t load_region_pta(struct mps_client *client, struct mps_region *rgn) {
-  mqx_print_region(DEBUG, rgn, "loading dptr array region and all sub-regions");
   void **pdptr = rgn->pta_addr; // swap address of pointers
   void **pend = rgn->pta_addr + rgn->size;
+  mqx_print_region(DEBUG, rgn, "loading dptr array region and all %ld sub-regions", pend - pdptr);
   uint64_t offset = 0;
   struct mps_region *rtmp;
   while (pdptr < pend) {
     rtmp = find_allocated_region(pglobal, *pdptr);
     if (rtmp == NULL) {
-      mqx_print(ERROR, "cannot find region for dptr(%p)", *pdptr);
+      mqx_print_region(ERROR, rgn, "cannot find region for dptr(%p)", *pdptr);
       return cudaErrorInvalidDevicePointer;
     }
+    mqx_print_region(DEBUG, rtmp, "sub-region");
     // populate the swap_addr of dptr array region with gpu_addr(after attached) + offset
     *(void **)(rgn->swap_addr + offset) = (void *)rtmp->gpu_addr + (*pdptr - rtmp->swap_addr);
     offset += sizeof(void *);
     pdptr++;
   }
-  mqx_print(DEBUG, "dptr array region swap loaded");
+  mqx_print_region(DEBUG, rgn, "dptr array region swap loaded");
   cudaError_t ret = cudaSuccess;
   // toggle validity to sync in swap->gpu direction
   toggle_region_valid(rgn, 1/*swap*/, 1);
@@ -711,6 +737,11 @@ static void kernel_finish_callback(CUstream stream, CUresult ret, void *data) {
   if (ret != CUDA_SUCCESS) {
     cuGetErrorString(ret, &_err_buf);
     mqx_print(ERROR, "kernel <%s>[%d] execution failed: %s(%d)", fname_table[kcb->func_index], kcb->func_index, _err_buf, ret);
+    for (int i = 0; i < kcb->nrgns; i++) {
+      printf("K %p\n", kcb->rgns[i]);
+    }
+    printf("\n");
+    exit(-1);
   } else {
     mqx_print(DEBUG, "kernel <%s>[%d] execution succeeded", fname_table[kcb->func_index], kcb->func_index);
   }
@@ -804,7 +835,7 @@ static cudaError_t attach_region(struct mps_region *rgn) {
     }
   }
   // TODO: if out of memory, evict and try to allocate gpu memory again
-  mqx_print(DEBUG, "cuMemAlloc %lu bytes @ %p", rgn->size, (void *)rgn->gpu_addr);
+  mqx_print_region(DEBUG, rgn, "cuMemAlloc");
   // TODO: maintain this value
   //pglobal->gpumem_used += calibrate_size(rgn->size);
   __sync_fetch_and_add(&rgn->using_kernels, 1);
@@ -943,7 +974,7 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
             return cudaErrorInvalidDevicePointer;
           }
           if (!contains_ptr((const void **)rgns, nrgns, (const void *)rgn)) {
-            mqx_print_region(DEBUG, rgn, "new pta region, offset(%zu)", kconf->kargs[i].dptr.offset);
+            mqx_print_region(DEBUG, rgn, "new pta sub-region, offset(%zu)", kconf->kargs[i].dptr.offset);
             //rgn->advice = kconf->kargs[i].dptr.advice & CADV_MASK;
             rgns[nrgns++] = rgn;
             rgn->advice = ((kconf->kargs[i].dptr.advice & CADV_PTAINPUT) ? CADV_INPUT : 0) | ((kconf->kargs[i].dptr.advice & CADV_PTAOUTPUT) ? CADV_OUTPUT : 0);
@@ -974,34 +1005,41 @@ static uint64_t fetch_and_mark_regions(struct mps_client *client, struct mps_reg
   return mem_total;
 }
 // NOTE: may be concurrent executed by multiple threads on exit
-static cudaError_t free_region(struct mps_region *rgn) {
-  uint8_t yielded = 0;
+static cudaError_t free_region(struct mps_client *client, struct mps_region *rgn) {
+  //uint8_t yielded = 0;
   if (rgn->flags & FLAG_PERSIST) {
     mqx_print_region(DEBUG, rgn, "freeing a PERSIST region");
     return cudaSuccess;
   }
-begin:
+//begin:
   //pthread_mutex_lock(&rgn->mm_mutex);
+  //cuStreamSynchronize(client->stream);
   switch (rgn->state) {
     // enough memory on gpu, just free it
     case ATTACHED:
-      if (rgn->using_kernels == 0) {
-        mqx_print_region(DEBUG, rgn, "freeing an ATTACHED but not used region");
-        checkCudaErrors(cuMemFree((CUdeviceptr)rgn->gpu_addr));
+      // only PERSIST regions can be used by multiple kernels
+      if (rgn->using_kernels == 0 || rgn->using_kernels == 1) {
+        mqx_print_region(DEBUG, rgn, "freeing an ATTACHED region, using kernels(%d)", rgn->using_kernels);
+        cuMemFree((CUdeviceptr)rgn->gpu_addr);
         goto revoke_resources;
+      } else {
+        mqx_print_region(ERROR, rgn, "wrong using_kernels(%d)", rgn->using_kernels);
+        exit(-1);
       }
-      rgn->evict_cost = 0;
+      //rgn->evict_cost = 0;
+
       //pthread_mutex_unlock(&rgn->mm_mutex);
       // region still being used by kernel(s), waiting for the end.
       // Because column data is not passed in by socket, but allocated by the server,
       // and shared among client processes, this should not be `cudaFree`ed, thus must
       // not come here, which is not handled for now.
-      if (!yielded) {
-        mqx_print_region(DEBUG, rgn, "region is attached, and being used, yield until region state change. using_kernels(%d) n_input(%d) n_output(%d)", rgn->using_kernels, rgn->n_input, rgn->n_output);
-      }
-      yielded = 1;
+
+      //if (!yielded) {
+      //  mqx_print_region(DEBUG, rgn, "region is attached, and being used, yield until region state change. using_kernels(%d) n_input(%d) n_output(%d)", rgn->using_kernels, rgn->n_input, rgn->n_output);
+      //  yielded = 1;
+      //}
       //sched_yield();
-      goto begin;
+      //goto begin;
     case EVICTED:
       mqx_print(DEBUG, "freeing an EVICTED region");
       goto revoke_resources;
@@ -1020,6 +1058,7 @@ revoke_resources:
   free(rgn->blocks);
   rgn->blocks = NULL;
   free(rgn->swap_addr);
+  free(rgn->pta_addr);
   rgn->swap_addr = NULL;
   rgn->gpu_addr = 0;
   rgn->state = ZOMBIE;
@@ -1070,7 +1109,7 @@ static cudaError_t mpsserver_cudaMemcpyHostToSwap(struct mps_client *client, voi
   return mpsserver_HtoS(client, rgn, dst, src, size);
 }
 static cudaError_t mpsserver_HtoS(struct mps_client *client, struct mps_region *rgn, void *dst, void *src, size_t size) {
-  mqx_print_region(DEBUG, rgn, "start");
+  mqx_print_region(DEBUG, rgn, "size(%ld)", size);
   if (rgn->flags & FLAG_PTARRAY) {
     return mpsserver_doHtoS_pta(rgn, dst, src, size);
   }
@@ -1347,11 +1386,11 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
   while ((offset_dtos < size) && (offset_dtos < DMA_NBUF * DMA_BUF_SIZE)) {
     round_size = min(offset_dtos + DMA_BUF_SIZE, size) - offset_dtos;
     if ((ret = cuMemcpyDtoHAsync(channel->stage_buf[channel->ibuf], src + offset_dtos, round_size, channel->stream) != CUDA_SUCCESS)) {
-      mqx_print(FATAL, "cuMemcpyDtoHAsync failed in blockDtoH");
+      mqx_print(FATAL, "cuMemcpyDtoHAsync failed in blockDtoH (%d)", ret);
       goto end;
     }
-    if (cuEventRecord(channel->events[channel->ibuf], channel->stream) != CUDA_SUCCESS) {
-      mqx_print(FATAL, "cuEventRecord failed in blockDtoH");
+    if ((ret = cuEventRecord(channel->events[channel->ibuf], channel->stream)) != cudaSuccess) {
+      mqx_print(FATAL, "cuEventRecord failed in blockDtoH (%d)", ret);
       goto end;
     }
     channel->ibuf = (channel->ibuf + 1) % DMA_NBUF;
@@ -1366,7 +1405,7 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
   offset_stoh = 0;
   while (offset_stoh < size) {
     if ((ret = cuEventSynchronize(channel->events[channel->ibuf])) != cudaSuccess) {
-      mqx_print(FATAL, "cuEventSynchronize failed in blockDtoH");
+      mqx_print(FATAL, "cuEventSynchronize failed in blockDtoH (%d)", ret);
       goto end;
     }
     struct timeval t3, t4;
@@ -1380,11 +1419,11 @@ static cudaError_t mpsserver_sync_blockDtoS(struct mps_client *client, void *dst
     if (offset_dtos < size) {
       round_size = min(offset_dtos + DMA_BUF_SIZE, size) - offset_dtos;
       if ((ret = cuMemcpyDtoHAsync(channel->stage_buf[channel->ibuf], src + offset_dtos, round_size, channel->stream) != CUDA_SUCCESS)) {
-        mqx_print(FATAL, "cuMemcpyDtoHAsync failed in blockDtoH");
+        mqx_print(FATAL, "cuMemcpyDtoHAsync failed in blockDtoH (%d)", ret);
         goto end;
       }
       if (cuEventRecord(channel->events[channel->ibuf], channel->stream) != CUDA_SUCCESS) {
-        mqx_print(FATAL, "cuEventRecord failed in blockDtoH");
+        mqx_print(FATAL, "cuEventRecord failed in blockDtoH (%d)", ret);
         goto end;
       }
       offset_dtos += round_size;
@@ -1407,17 +1446,17 @@ static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdevicep
   offset = 0;
   while (offset < size) {
     if ((ret = cuEventSynchronize(channel->events[channel->ibuf])) != CUDA_SUCCESS) {
-      mqx_print(FATAL, "cuEventSynchronize failed in blockHtoD");
+      mqx_print(FATAL, "cuEventSynchronize failed in blockHtoD (%d)", ret);
       goto end;
     }
     round_size = min(offset + DMA_BUF_SIZE, size) - offset;
     memcpy(channel->stage_buf[channel->ibuf], src + offset, round_size);
     if ((ret = cuMemcpyHtoDAsync(dst + offset, channel->stage_buf[channel->ibuf], round_size, channel->stream) != CUDA_SUCCESS)) {
-      mqx_print(FATAL, "cuMemcpyHtoDAsync failed in blockHtoD");
+      mqx_print(FATAL, "cuMemcpyHtoDAsync failed in blockHtoD (%d)", ret);
       goto end;
     }
     if (cuEventRecord(channel->events[channel->ibuf], channel->stream) != CUDA_SUCCESS) {
-      mqx_print(FATAL, "cuEventRecord failed in blockHtoD");
+      mqx_print(FATAL, "cuEventRecord failed in blockHtoD (%d)", ret);
       goto end;
     }
     ibuflast = channel->ibuf;
@@ -1425,7 +1464,7 @@ static cudaError_t mpsserver_sync_blockStoD(struct mps_client *client, CUdevicep
     offset += round_size;
   }
   if ((ret = cuEventSynchronize(channel->events[ibuflast])) != CUDA_SUCCESS) {
-    mqx_print(FATAL, "cuEventSynchronize failed in blockHtoD");
+    mqx_print(FATAL, "cuEventSynchronize failed in blockHtoD (%d)", ret);
     goto end;
   }
 end:
@@ -1612,7 +1651,7 @@ void dma_channel_destroy(struct mps_dma_channel *channel) {
 }
 static void update_region_evict_cost(struct mps_region *rgn) {
   uint64_t cost = 0;
-  pthread_mutex_lock(&rgn->mm_mutex);
+  //pthread_mutex_lock(&rgn->mm_mutex);
   if (rgn->flags & FLAG_PTARRAY) {
     cost = 0;
   } else {
@@ -1623,6 +1662,6 @@ static void update_region_evict_cost(struct mps_region *rgn) {
     }
   }
   rgn->evict_cost = cost;
-  pthread_mutex_unlock(&rgn->mm_mutex);
+  //pthread_mutex_unlock(&rgn->mm_mutex);
 }
 

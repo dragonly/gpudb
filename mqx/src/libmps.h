@@ -82,9 +82,9 @@ struct mps_region {
   do {                                                              \
     if (lvl <= MQX_PRINT_LEVEL) {                                   \
       if (lvl > WARN) {                                             \
-        fprintf(stdout, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags, __FILE__, __LINE__); \
+        fprintf(stdout, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) swap_valid(%d) gpu_valid(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->blocks[0].swap_valid, (rgn)->blocks[0].gpu_valid, __FILE__, __LINE__); \
       } else {                                                      \
-        fprintf(stderr, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) state(%d) flags(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->state, (rgn)->flags, __FILE__, __LINE__); \
+        fprintf(stderr, "%s %s: " fmt ": rgn(%p) swap(%p) gpu(%p) size(%zu) swap_valid(%d) gpu_valid(%d) (%s:%d)\n", MQX_PRINT_MSG[lvl], __func__, ##arg, (rgn), (rgn)->swap_addr, (void *)(rgn)->gpu_addr, (rgn)->size, (rgn)->blocks[0].swap_valid, (rgn)->blocks[0].gpu_valid, __FILE__, __LINE__); \
       }                                                             \
     }                                                               \
   } while (0)

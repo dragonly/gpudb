@@ -95,7 +95,7 @@ void sigint_handler(int signum) {
   unlink(SERVER_SOCKET_FILE);
   dma_channel_destroy(&pglobal->dma_htod);
   dma_channel_destroy(&pglobal->dma_dtoh);
-  checkCudaErrors(cuCtxDestroy(cudaContext));
+  //checkCudaErrors(cuCtxDestroy(cudaContext));
   mpsserver_printStats();
   exit(0);
 }
@@ -329,6 +329,7 @@ __thread struct mps_stats stats;
 static volatile uint32_t client_id_max = -1;
 // TODO: support cuda program using multiple streams
 void *worker_thread(void *client_socket) {
+  //printf("tid: %d\n", gettid());
   checkCudaErrors(cuCtxSetCurrent(cudaContext));
   memset(&stats, 0, sizeof(struct mps_stats));
 
@@ -355,7 +356,7 @@ take_client_pos:
     mqx_print(ERROR, "invalid client position");
     pthread_exit(NULL);
   }
-  mqx_print(INFO, "++++++++++++++++ worker thread created (id: %d, pos: %d, total: %d) ++++++++++++++++", client_id, client_pos, pglobal->mps_nclients);
+  mqx_print(INFO, "++++++++++++++++ worker thread created (id: %d, pos: %d, running: %d) ++++++++++++++++", client_id, client_pos, pglobal->mps_nclients);
 
   struct mps_client *client = &pglobal->mps_clients[client_pos];
   client->id = client_id;
@@ -420,7 +421,7 @@ take_client_pos:
       case REQ_CUDA_MEMFREE: {
         void *devPtr;
         deserialize_uint64(buf, (uint64_t *)&devPtr);
-        cudaError_t ret = mpsserver_cudaFree(devPtr);
+        cudaError_t ret = mpsserver_cudaFree(client, devPtr);
         serialize_uint32(buf, ret);
         send(socket, buf, sizeof(ret), 0);
       } break;
@@ -686,7 +687,7 @@ finish:
     pglobal->mps_clients_bitmap &= ~(1 << client_pos);
     client_destroy(client);
     client->id = -1;
-    checkCudaErrors(cuStreamDestroy(client->stream));
+    cuStreamDestroy(client->stream);
     //dma_channel_destroy(&client->dma_htod);
     //dma_channel_destroy(&client->dma_dtoh);
   pthread_mutex_unlock(&pglobal->client_mutex);
@@ -698,6 +699,6 @@ finish:
   close(socket);
   checkCudaErrors(cuCtxPopCurrent(&cudaContext));
   mpsserver_printStats();
-  mqx_print(INFO, "---------------- worker thread exit    (id: %d, pos: %d, total: %d) ----------------", client_id, client_pos, pglobal->mps_nclients);
+  mqx_print(INFO, "---------------- worker thread exit    (id: %d, pos: %d, running: %d) ----------------", client_id, client_pos, pglobal->mps_nclients);
   return NULL;
 }

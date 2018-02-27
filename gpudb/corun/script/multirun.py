@@ -12,7 +12,7 @@ datapath = rootpath + r'/../data_s10/'
 
 # corun for #rep times
 rep = '9'
-CORUN = 9
+CORUN = 2
 
 preloadlib=r'LD_PRELOAD='+rootpath+r'/gmm/libgmm.so '
 
@@ -40,7 +40,7 @@ for query in queries:
     print query
     # Solorun the querys to load data into memory first
     cmd = preloadlib + ' ./' + query + ' --datadir ' + datapath
-    os.system(cmd)
+    #os.system(cmd)
     # Now corun the querys
     for i in range(CORUN):
         oo = output + query + '.' + str(i)
