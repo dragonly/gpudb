@@ -218,7 +218,6 @@ cudaError_t mpsserver_cudaFree(void *devPtr) {
   if ((ret = free_region(rgn) != cudaSuccess)) {
     return ret;
   }
-  mqx_print_region(DEBUG, rgn, "success");
   return cudaSuccess;
 }
 cudaError_t mpsserver_cudaMemcpy(struct mps_client *client, void *dst, void *src, size_t size, enum cudaMemcpyKind kind) {
@@ -1532,6 +1531,7 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
       blk = &rgn_dst->blocks[i];
       if (!blk->gpu_valid) {
         // !gpu_valid && !swap_valid condition is cleared in branches above, thus swap_valid here
+        mqx_print_region(DEBUG, rgn_dst, "sync dst in DtoD");
         if ((ret = mpsserver_sync_block(client, rgn_dst, i)) != cudaSuccess) {
           mqx_print(ERROR, "sync block failed");
           goto fail;
@@ -1547,6 +1547,7 @@ static cudaError_t mpsserver_DtoD(struct mps_client *client, struct mps_region *
     for (uint32_t i = 0; i < rgn_src->nblocks; i++) {
       blk = &rgn_src->blocks[i];
       if (!blk->gpu_valid) { // !gpu_valid && !swap_valid condition is cleared in memset branch above, thus swap_valid here
+        mqx_print_region(DEBUG, rgn_src, "sync src in DtoD");
         if ((ret = mpsserver_sync_block(client, rgn_src, i)) != cudaSuccess) {
           mqx_print(ERROR, "sync block failed");
           goto fail;
